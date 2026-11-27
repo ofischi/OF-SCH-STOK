@@ -1,7 +1,7 @@
 /* OFISCHI Stok — service worker
    Yalnızca programın kendi dosyaları önbelleğe alınır.
    Supabase istekleri (veri, giriş, canlı bağlantı) ASLA önbelleğe alınmaz; her zaman canlıdan gelir. */
-const SURUM = 'ofs-stok-v8';
+const SURUM = 'ofs-stok-v9';
 const KABUK = ['./', './index.html', './manifest.webmanifest', './favicon.ico',
   './icon.svg', './icon-192.png', './icon-512.png', './apple-touch-icon.png',
   './favicon-32.png', './favicon-16.png'];
