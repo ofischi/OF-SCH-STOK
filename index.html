@@ -283,6 +283,19 @@ table.rt .r{text-align:right}
 .lgp.koyu{background:#09090b;color:#fafafa;border-color:#27272a}
 .lgp img{max-height:64px;max-width:100%;object-fit:contain}
 
+/* Rehber turu */
+.tur-ov{position:fixed;inset:0;z-index:150;background:transparent;transition:background .2s}
+.tur-ov.karart{background:rgba(0,0,0,.6)}
+.tur-isik{position:fixed;z-index:151;border-radius:12px;pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,.6),0 0 0 2px hsl(var(--background)),0 0 0 4px hsl(var(--ring));transition:left .25s ease,top .25s ease,width .25s ease,height .25s ease,opacity .2s}
+.tur-kart{position:fixed;z-index:152;left:50%;top:50%;width:min(380px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow-y:auto;padding:18px;background:hsl(var(--background));color:hsl(var(--foreground));border:1px solid hsl(var(--border));border-radius:12px;box-shadow:0 20px 50px rgba(0,0,0,.35);transition:opacity .15s,left .25s ease,top .25s ease}
+.tur-kart.orta{width:min(460px,calc(100vw - 24px))}
+.tur-kart h3{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:4px 0 8px}
+.tur-m{font-size:14px;line-height:1.55;color:hsl(var(--muted-foreground))}
+.tur-m b{color:hsl(var(--foreground));font-weight:600}
+.tur-ust{display:flex;align-items:center;justify-content:space-between;margin:-8px -8px 0 0}
+.tur-ikon{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:hsl(var(--primary));color:hsl(var(--primary-foreground));margin-bottom:10px}
+.tur-ikon svg{width:22px;height:22px}
+
 /* Tema logoları */
 .dark .lg-acik{display:none!important}
 html:not(.dark) .lg-koyu{display:none!important}
@@ -414,6 +427,9 @@ const IC = {
   yazdir: '<path d="M6 9V3h12v6"/><path d="M6 18H4v-7h16v7h-2"/><path d="M6 14h12v7H6z"/>',
   excel: '<path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M14 3v6h6M9 13l4 5M13 13l-4 5"/>',
   pdf: '<path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M14 3v6h6M8 15h8M8 18h5"/>',
+  geri: '<path d="m15 18-6-6 6-6"/>',
+  ileri: '<path d="m9 18 6-6-6-6"/>',
+  rehber: '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36z"/>',
   goz: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   cik: '<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
   panelsol: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
@@ -770,6 +786,7 @@ async function baslat() {
   iskelet();
   rotala();
   canliBaslat();
+  if (!turGoruldu()) setTimeout(() => { if (S.prof && !document.querySelector('.ov')) turBaslat(); }, 900);
 }
 
 /* ---------- Açılır menü ---------- */
@@ -807,11 +824,13 @@ function kullaniciMenu(btn, ust = false) {
     <button class="pi" data-pk data-yenile>${ic('yenile')} Verileri yenile</button>
     <button class="pi" data-pk data-tema>${ic('ay')} Tema değiştir</button>
     ${uygulamaModu() ? '' : `<button class="pi" data-pk id="pyk">${ic('telefon')} Uygulamayı yükle</button>`}
+    <button class="pi" data-pk id="ptur">${ic('rehber')} Rehber turu</button>
     <div class="ps"></div>
     <button class="pi" data-pk id="pcx">${ic('cik')} Çıkış yap</button>`, {ust});
   if (!p) return;
   $('#pcx', p).onclick = cikisYap;
   const pyk = $('#pyk', p); if (pyk) pyk.onclick = uygulamaYukle;
+  $('#ptur', p).onclick = () => setTimeout(() => turBaslat(), 50);
   $('[data-yenile]', p).onclick = verileriYenile;
 }
 
@@ -961,7 +980,7 @@ const canliCiz = debounce(() => {
 const panelYenile = debounce(() => {
   if (!panelKirli || !S.prof) return;
   if (document.visibilityState !== 'visible') return;
-  if (S.rota !== 'panel' || document.querySelector('.ov')) return;
+  if (S.rota !== 'panel' || document.querySelector('.ov') || TUR.aktif) return;
   panelKirli = false;
   rotala();
 }, 1500);
@@ -2322,6 +2341,7 @@ VIEWS.hesap = el => {
     <div><div class="sub">Ad Soyad</div><b>${esc(S.prof.ad_soyad || '—')}</b></div>
     <div><div class="sub">E-posta</div>${esc(S.user.email)}</div>
     <div><div class="sub">Rol</div>${yon() ? 'Yönetici' : 'Depocu'}</div>
+    <div class="row"><button class="btn" id="tur-bas">${ic('rehber')} Rehber turunu başlat</button></div>
   </div>
   <form id="fs" class="glass card stack" style="max-width:520px;margin-top:14px">
     <h3 style="margin:0">Şifre Değiştir</h3>
@@ -2329,6 +2349,7 @@ VIEWS.hesap = el => {
     <label class="f"><span>Yeni şifre (tekrar)</span><input class="inp" type="password" name="p2" minlength="8" maxlength="72" required autocomplete="new-password"></label>
     <div class="row end"><button class="btn gold">Şifreyi Güncelle</button></div>
   </form>`;
+  $('#tur-bas').onclick = () => turBaslat();
   $('#fs').onsubmit = e => {
     e.preventDefault();
     const fm = e.target;
@@ -2340,6 +2361,225 @@ VIEWS.hesap = el => {
     });
   };
 };
+
+/* ---------- Rehber turu ---------- */
+const TUR_SURUM = 'v1';
+const turAnahtar = () => `ofs_tur_${TUR_SURUM}_${S.user?.id || ''}`;
+const turGoruldu = () => { try { return localStorage.getItem(turAnahtar()) === '1'; } catch { return true; } };
+const turBitir = () => { try { localStorage.setItem(turAnahtar(), '1'); } catch {} };
+const TUR = {aktif: false, i: 0, adimlar: [], baslangicRota: 'panel'};
+
+function turAdimlari() {
+  const y = yon();
+  const ad = (S.prof.ad_soyad || '').split(' ')[0] || '';
+  const A = [
+    {orta: true, baslik: `Hoş geldin${ad ? ', ' + esc(ad) : ''}!`, ikon: 'panel',
+      metin: `OFISCHI Stok'ta ürünlerin <b>giriş</b>, <b>çıkış</b> ve <b>kalan</b> miktarlarını takip edeceksin. Bu kısa tur programın her bölümünü tek tek gösterecek, yaklaşık 2 dakika sürer.<br><br>İstediğin an <b>Turu bitir</b> diyebilir, daha sonra sağ üstteki kullanıcı menüsünden tekrar başlatabilirsin.`},
+    {rota: 'panel', hedef: '.side nav', mobilHedef: '#sbt', baslik: 'Ana menü',
+      metin: y ? '<b>Stok</b> bölümü günlük işler içindir: giriş, çıkış, sayım ve raporlar. <b>Yönetim</b> bölümünü yalnızca yöneticiler görür: ürünler, kullanıcılar ve ayarlar.'
+               : 'Günlük işlerin hepsi buradadır: <b>Stok Girişi</b>, <b>Stok Çıkışı</b>, <b>Sayım</b>, <b>Hareketler</b> ve <b>Raporlar</b>.',
+      mobilMetin: 'Menüyü bu düğmeyle açarsın. Giriş, çıkış, sayım, hareketler ve raporlar menüdedir.'},
+    {rota: 'panel', hedef: '#sbt', masaustu: true, baslik: 'Menüyü daralt',
+      metin: 'Bu düğme menüyü yalnızca simgelere küçültür, ekranda daha çok yer açar. Tekrar basınca eski hâline döner.'},
+    {rota: 'panel', hedef: '.stats', baslik: 'Özet kartları',
+      metin: `<b>Toplam stok:</b> depodaki toplam adet.<br><b>Bugünkü hareket:</b> bugün giren (+) ve çıkan (−) adet.<br><b>Stokta olmayan:</b> miktarı 0 olan ürün sayısı.<br><b>Açık sayım:</b> devam eden sayım var mı.`},
+    {rota: 'panel', hedef: '#grafik', baslik: 'Stok hareketi grafiği',
+      metin: 'Son 8 haftada haftalık ne kadar ürün girdi ve çıktı. Yeşil alan <b>giriş</b>, kesikli çizgi <b>çıkış</b>. Fareyle üzerine gelince (telefonda dokununca) o haftanın sayıları görünür.'},
+    {rota: 'panel', hedef: '.two > :first-child', baslik: 'Kategorilere göre stok',
+      metin: 'Stoğun kategorilere dağılımı. Kırmızı rozet, o kategoride stokta olmayan ürün olduğunu gösterir.'},
+    {rota: 'panel', hedef: '.two > :last-child', baslik: 'Son hareketler',
+      metin: 'Ekibin son kestiği fişler; kim, ne zaman, kaç adet. Bir satıra tıklayınca fişin tüm detayı açılır.'},
+    {rota: 'panel', hedef: '#ust', baslik: 'Hızlı işlemler',
+      metin: 'En sık yapılan işlere tek tıkla ulaşırsın: <b>Stok girişi</b>, <b>Stok çıkışı</b> ve <b>Sayım</b>.'},
+    {rota: 'panel', hedef: '#canli', baslik: 'Canlı bağlantı',
+      metin: '<b>Yeşil</b> nokta: başka bir bilgisayarda ya da telefonda yapılan değişiklikler ekranına anında gelir, sayfayı yenilemene gerek kalmaz. <b>Gri</b> ise bağlantı yeniden kuruluyor demektir.'},
+    {rota: 'panel', hedef: '#ara-b', baslik: 'Ürün arama',
+      metin: 'Model kodu, ad, SKU, renk ya da kumaşa göre bütün ürünlerde arar. Bilgisayarda <b>Ctrl + K</b> kısayoluyla da açılır. Sonuca tıklayınca ürünün stok geçmişi gelir.'},
+    {rota: 'panel', hedef: '#bil-b', baslik: 'Bildirimler',
+      metin: 'Stokta kalmayan ürünler burada listelenir. Kırmızı nokta varsa en az bir ürünün stoğu bitmiş demektir.'},
+    {rota: 'panel', hedef: '.hdr [data-tema]', baslik: 'Açık / koyu tema',
+      metin: 'Ekranı açık ya da koyu renge geçirir. Seçimin bu cihazda hatırlanır.'},
+    {rota: 'panel', hedef: '#av-b', baslik: 'Kullanıcı menüsü',
+      metin: '<b>Hesabım</b> (şifre değiştirme), <b>Uygulamayı yükle</b>, <b>Rehber turu</b> ve <b>Çıkış</b> buradadır.<br><br>Güvenlik için <b>30 dakika işlem yapılmazsa</b> oturum kendiliğinden kapanır.'},
+  ];
+  if (y) A.push(
+    {rota: 'urunler', hedef: '#yeni', baslik: '1. adım: Ürünleri tanımla',
+      metin: 'Stok tutmadan önce ürünleri eklemen gerekir. Her ürünün bir <b>model kodu</b> ve <b>model adı</b> vardır.<br><br>Ürünün renk, kumaş ya da ebat seçenekleri <b>varyant</b> olarak eklenir ve her varyantın stoğu ayrı tutulur. SKU alanını boş bırakırsan otomatik oluşturulur.'},
+    {rota: 'urunler', hedef: '.filters', baslik: 'Ürün listesi',
+      metin: 'Ürüne tıklayınca düzenleyebilirsin. Hareketi olan bir ürün silinemez, kayıtların bozulmaması için <b>pasif</b> yapılır. Pasif ürünler listelerde görünmez ama geçmişi korunur.'}
+  );
+  A.push(
+    {rota: 'giris', hedef: '#ff > .glass:first-child', baslik: 'Stok girişi: neden',
+      metin: 'Depoya ürün girdiğinde buradan <b>giriş fişi</b> kesilir. Önce nedeni seç: <b>Üretimden</b>, <b>Açılış stoğu</b> (ilk sayım), <b>İade</b> ya da <b>Diğer</b>. Açıklamaya not yazabilirsin.'},
+    {rota: 'giris', hedef: '#lines', baslik: 'Ürün ve miktar',
+      metin: 'Ürün kutusuna model, SKU ya da renk yazarak ara, listeden seç ve miktarı gir. Altta <b>mevcut stok</b> ve <b>işlem sonrası</b> miktar görünür.'},
+    {rota: 'giris', hedef: '#ekle', baslik: 'Birden fazla ürün',
+      metin: 'Bir fişe istediğin kadar satır ekleyebilirsin. Örneğin üretimden gelen 5 farklı modeli tek fişte girebilirsin.'},
+    {rota: 'giris', hedef: '#kaydet', baslik: 'Kaydet',
+      metin: 'Kaydedince fişe otomatik numara verilir (örn. <b>G-000001</b>) ve stok anında artar. Fişi yazdırabilir ya da PDF olarak kaydedebilirsin.'},
+    {rota: 'cikis', hedef: '#ff > .glass:first-child', baslik: 'Stok çıkışı',
+      metin: 'Depodan ürün çıkınca <b>çıkış fişi</b> kesilir. Neden <b>Satış</b> ise <b>müşteri adı zorunludur</b>. Sipariş ve irsaliye numarasını da yazarsan sonra kolayca bulursun.<br><br>Stokta olandan fazlası çıkarılamaz, program engeller.'},
+    {rota: 'stok', hedef: '.filters', baslik: 'Stok durumu',
+      metin: 'Tüm ürünlerin güncel miktarı burada. Arama, kategori ve <b>stokta olan / olmayan</b> filtreleri var. Bir ürüne tıklayınca son 100 hareketi ve hızlı giriş/çıkış düğmeleri açılır.'},
+    {rota: 'hareketler', hedef: '.filters', baslik: 'Hareketler',
+      metin: 'Bütün giriş ve çıkışların tam dökümü: tarih aralığı, tür, fiş/müşteri/sipariş no ya da ürüne göre filtrele. Satıra tıklayınca fiş açılır.' +
+        (y ? '<br><br>Yanlış bir fiş <b>silinmez</b>; fiş detayından <b>iptal</b> edilir, program stoğu geri alan bir iptal fişi keser. Böylece geçmiş hiç bozulmaz.' : '<br><br>Yanlış bir fiş kestiysen yöneticiye haber ver; fişleri yalnızca yönetici iptal edebilir.')},
+    {rota: 'sayim', hedef: '#yeni', baslik: 'Sayım',
+      metin: 'Depoyu sayarken <b>Yeni Sayım</b> başlat, her ürünün sayılan miktarını yaz; yazdıkların otomatik kaydedilir. Birden fazla kişi aynı sayımı aynı anda yapabilir, girilenler herkeste anında görünür.<br><br>' +
+        (y ? 'Sayım bitince <b>Sayımı Tamamla</b>: farklar otomatik <b>Sayım fazlası / Sayım eksiği</b> fişi olur. Tamamlama yalnızca yöneticidedir.' : 'Sayım bitince yöneticiye haber ver; farkları stoğa yönetici onayıyla işler.')},
+    {rota: 'raporlar', hedef: '#rt', ust: '#v', baslik: 'Raporlar',
+      metin: '<b>Stok Durumu</b> ve <b>Hareket Dökümü</b> raporlarını filtreleyip <b>Excel</b> ya da <b>PDF</b> olarak alabilirsin.'}
+  );
+  if (y) A.push(
+    {rota: 'kullanicilar', hedef: '#yeni', baslik: 'Kullanıcılar',
+      metin: 'Ekibi buradan eklersin. <b>Depocu</b> giriş, çıkış ve sayım yapar; ürün, kullanıcı ve ayarları değiştiremez, fiş iptal edemez. <b>Yönetici</b> her şeyi yapar.<br><br>Ayrılan birini silmek yerine <b>pasif</b> yap; geçmiş kayıtları korunur.'},
+    {rota: 'ayarlar', hedef: '.lgup', ust: '.glass', baslik: 'Firma ve logo',
+      metin: 'Firma adını ve <b>açık / koyu tema</b> için ayrı logoları buradan yüklersin. Logo menüde, giriş ekranında ve PDF çıktılarında görünür.'}
+  );
+  A.push({orta: true, rota: 'panel', baslik: 'Hazırsın!', ikon: 'sayim',
+    metin: (y ? '<b>Önerilen ilk adımlar:</b><ol style="padding-left:20px;margin:8px 0;display:grid;gap:4px"><li><b>Ürünler</b>den ürünleri ve varyantlarını ekle.</li><li><b>Stok Girişi</b>nde "Açılış stoğu" nedeniyle mevcut stoğu gir.</li><li><b>Kullanıcılar</b>dan ekibi ekle.</li></ol>'
+                 : '<b>Önerilen ilk adım:</b> depoya gelen ürün için <b>Stok Girişi</b>, giden ürün için <b>Stok Çıkışı</b> fişi kes.<br><br>')
+      + 'Turu tekrar izlemek istersen sağ üstteki kullanıcı menüsünden <b>Rehber turu</b>na bas.'});
+  return A.filter(a => !(a.masaustu && mobil()));
+}
+
+async function hedefBekle(sec, ms = 4000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const el = $(sec);
+    if (el && el.getBoundingClientRect().width > 0) return el;
+    await new Promise(r => setTimeout(r, 80));
+  }
+  return null;
+}
+
+function turBaslat(adim = 0) {
+  if (!S.prof || TUR.aktif) return;
+  popKapat();
+  document.querySelectorAll('.ov').forEach(o => o.remove());
+  TUR.aktif = true; TUR.i = adim; TUR.adimlar = turAdimlari(); TUR.baslangicRota = S.rota;
+  document.body.insertAdjacentHTML('beforeend', `<div class="tur-ov" id="tur-ov"></div><div class="tur-isik" id="tur-isik"></div><div class="tur-kart" id="tur-kart" role="dialog" aria-modal="true" aria-labelledby="tur-b"></div>`);
+  $('#tur-ov').addEventListener('click', e => e.stopPropagation());
+  addEventListener('resize', turKonumla);
+  addEventListener('scroll', turKonumla, true);
+  document.addEventListener('keydown', turTus, true);
+  turGoster();
+}
+
+function turKapat(tamam = true) {
+  if (!TUR.aktif) return;
+  TUR.aktif = false;
+  if (tamam) turBitir();
+  ['tur-ov', 'tur-isik', 'tur-kart'].forEach(i => $('#' + i)?.remove());
+  removeEventListener('resize', turKonumla);
+  removeEventListener('scroll', turKonumla, true);
+  document.removeEventListener('keydown', turTus, true);
+  document.body.classList.remove('sb-mobil');
+  if (S.rota !== 'panel') location.hash = '#/panel';
+}
+
+function turTus(e) {
+  if (!TUR.aktif) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); turKapat(true); }
+  else if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); turIleri(); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); turGeri(); }
+  else if (e.key === 'Tab') {
+    const f = $$('#tur-kart button'); if (!f.length) return;
+    const i = f.indexOf(document.activeElement);
+    e.preventDefault(); f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
+  }
+}
+function turIleri() { if (TUR.i >= TUR.adimlar.length - 1) return turKapat(true); TUR.i++; turGoster(); }
+function turGeri() { if (TUR.i > 0) { TUR.i--; turGoster(); } }
+
+let turSayac = 0;
+async function turGoster() {
+  const no = ++turSayac;
+  const a = TUR.adimlar[TUR.i];
+  const kart = $('#tur-kart'), isik = $('#tur-isik');
+  if (!kart) return;
+  kart.style.opacity = '0';
+  if (a.rota && S.rota !== a.rota) {
+    location.hash = '#/' + a.rota;
+    const t0 = Date.now();
+    while (S.rota !== a.rota && Date.now() - t0 < 3000) await new Promise(r => setTimeout(r, 40));
+    await new Promise(r => setTimeout(r, 60));
+    while ($('#v > .spin') && Date.now() - t0 < 5000) await new Promise(r => setTimeout(r, 60));
+    if (no !== turSayac || !TUR.aktif) return;
+  }
+  document.body.classList.remove('sb-mobil');
+  let el = null;
+  const sec = mobil() && a.mobilHedef ? a.mobilHedef : a.hedef;
+  if (!a.orta && sec) {
+    el = await hedefBekle(sec);
+    if (no !== turSayac || !TUR.aktif) return;
+    if (el && a.ust) el = el.closest(a.ust) || el;
+    if (el) { el.scrollIntoView({block: 'center', behavior: 'instant'}); await new Promise(r => setTimeout(r, 120)); }
+  } else if (a.rota) {
+    await hedefBekle('#v > :not(.spin)', 3000);
+  }
+  if (no !== turSayac || !TUR.aktif) return;
+  TUR.el = el; TUR.sec = el ? sec : null; TUR.ustSec = a.ust || null;
+  const son = TUR.i === TUR.adimlar.length - 1, ilk = TUR.i === 0;
+  const metin = mobil() && a.mobilMetin ? a.mobilMetin : a.metin;
+  const yuzde = Math.round(((TUR.i + 1) / TUR.adimlar.length) * 100);
+  kart.className = 'tur-kart' + (a.orta || !el ? ' orta' : '');
+  kart.innerHTML = `
+    ${a.orta ? `<div class="tur-ikon">${ic(a.ikon || 'panel')}</div>` : ''}
+    <div class="tur-ust"><span class="sub">${TUR.i + 1} / ${TUR.adimlar.length}</span><button class="btn ghost icon sm" data-tk aria-label="Turu bitir" title="Turu bitir">${ic('x')}</button></div>
+    <h3 id="tur-b">${a.baslik}</h3>
+    <div class="tur-m">${metin}</div>
+    <div class="prg" style="height:4px;margin:16px 0"><i style="transform:scaleX(${yuzde / 100})"></i></div>
+    <div class="row" style="flex-wrap:nowrap">
+      ${ilk ? `<button class="btn ghost sm" data-tk>Daha sonra</button>` : `<button class="btn sm" data-tg>${ic('geri')} Geri</button>`}
+      <span class="sp"></span>
+      <button class="btn gold sm" data-ti>${ilk ? 'Turu başlat' : son ? 'Bitir' : 'İleri'} ${son ? '' : ic('ileri')}</button>
+    </div>
+    ${ilk ? '<p class="sub" style="margin-top:12px;text-align:center">Klavyede ← → ile gezinebilir, Esc ile çıkabilirsin.</p>' : ''}`;
+  $$('[data-tk]', kart).forEach(b => b.onclick = () => turKapat(true));
+  $('[data-tg]', kart)?.addEventListener('click', turGeri);
+  $('[data-ti]', kart).onclick = turIleri;
+  isik.style.opacity = el ? '1' : '0';
+  $('#tur-ov').classList.toggle('karart', !el);
+  turKonumla();
+  kart.style.opacity = '1';
+  $('[data-ti]', kart).focus({preventScroll: true});
+}
+
+function turKonumla() {
+  if (!TUR.aktif) return;
+  const kart = $('#tur-kart'), isik = $('#tur-isik'), el = TUR.el;
+  if (!kart) return;
+  const vw = innerWidth, vh = innerHeight, b = 8;
+  if (el && !document.body.contains(el) && TUR.sec) {
+    let yeni = $(TUR.sec);
+    if (yeni && TUR.ustSec) yeni = yeni.closest(TUR.ustSec) || yeni;
+    if (yeni) TUR.el = el = yeni;
+  }
+  if (!el || !document.body.contains(el) || kart.classList.contains('orta')) {
+    isik.style.opacity = '0';
+    kart.style.left = Math.max(12, (vw - kart.offsetWidth) / 2) + 'px';
+    kart.style.top = Math.max(12, (vh - kart.offsetHeight) / 2) + 'px';
+    return;
+  }
+  const r = el.getBoundingClientRect();
+  const x = Math.max(4, r.left - b), y = Math.max(4, r.top - b);
+  const w = Math.min(vw - x - 4, r.width + b * 2), h = Math.min(vh - y - 4, r.height + b * 2);
+  Object.assign(isik.style, {left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px'});
+  const kw = kart.offsetWidth, kh = kart.offsetHeight, bosluk = 14;
+  let left, top;
+  if (mobil()) {
+    left = 12;
+    top = (r.top + r.height / 2 > vh / 2) ? Math.max(12, y - kh - bosluk) : Math.min(vh - kh - 12, y + h + bosluk);
+    if (top < 12 || top + kh > vh - 12) top = vh - kh - 12;
+  } else if (vh - (y + h) >= kh + bosluk + 12) { top = y + h + bosluk; left = r.left; }
+  else if (y >= kh + bosluk + 12) { top = y - kh - bosluk; left = r.left; }
+  else if (vw - (x + w) >= kw + bosluk + 12) { left = x + w + bosluk; top = r.top; }
+  else if (x >= kw + bosluk + 12) { left = x - kw - bosluk; top = r.top; }
+  else { left = (vw - kw) / 2; top = vh - kh - 16; }
+  kart.style.left = Math.max(12, Math.min(vw - kw - 12, left)) + 'px';
+  kart.style.top = Math.max(12, Math.min(vh - kh - 12, top)) + 'px';
+}
 
 /* ---------- Hareketsizlikte otomatik çıkış (ortak bilgisayarlar için) ---------- */
 const OTURUM_SURESI = 30 * 60 * 1000;
