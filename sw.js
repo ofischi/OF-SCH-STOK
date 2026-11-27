@@ -1,10 +1,10 @@
 /* OFISCHI Stok — service worker
    Yalnızca programın kendi dosyaları önbelleğe alınır.
    Supabase istekleri (veri, giriş, canlı bağlantı) ASLA önbelleğe alınmaz; her zaman canlıdan gelir. */
-const SURUM = 'ofs-stok-v1';
+const SURUM = 'ofs-stok-v2';
 const KABUK = ['./', './index.html', './manifest.webmanifest', './favicon.ico',
-  './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
-  './icons/favicon-32.png', './icons/favicon-16.png'];
+  './icon.svg', './icon-192.png', './icon-512.png', './apple-touch-icon.png',
+  './favicon-32.png', './favicon-16.png'];
 const CDN = ['cdn.jsdelivr.net'];
 
 self.addEventListener('install', e => {
