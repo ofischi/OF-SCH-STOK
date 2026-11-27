@@ -254,6 +254,8 @@ table.rt .r{text-align:right}
 @keyframes salla{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
 .modal.salla{animation:salla .35s ease}
 
+.robot{display:flex;justify-content:center;min-height:65px;align-items:center}
+
 /* Açılır menü */
 .pop{position:fixed;z-index:90;min-width:220px;max-width:min(340px,calc(100vw - 16px));padding:4px;background:hsl(var(--popover));border:1px solid hsl(var(--border));border-radius:var(--radius);box-shadow:0 10px 30px -8px rgba(0,0,0,.3);animation:zi .12s ease}
 .pop .pl{padding:6px 8px;font-size:14px;font-weight:600}
@@ -376,7 +378,9 @@ html:not(.dark) .lg-koyu{display:none!important}
    ===================================================================== */
 const CONFIG = {
   SUPABASE_URL: 'https://xxafdvlmnlhzsdyumkvl.supabase.co',
-  SUPABASE_KEY: 'sb_publishable_tj7WVacJnhJ-emHTNtI3mw_TVEOoPx9'
+  SUPABASE_KEY: 'sb_publishable_tj7WVacJnhJ-emHTNtI3mw_TVEOoPx9',
+  // Cloudflare Turnstile "Site Key" (herkese açık anahtar). Boşsa robot doğrulaması kapalıdır.
+  TURNSTILE_SITE_KEY: ''
 };
 
 /* ---------- Yardımcılar ---------- */
@@ -462,6 +466,7 @@ function hataMesaji(e) {
   if (/urunler_model_kodu_key/.test(m)) return 'Bu model kodu zaten kayıtlı.';
   if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin.';
   if (/Invalid login credentials/i.test(m)) return 'E-posta veya şifre hatalı.';
+  if (/captcha/i.test(m)) return 'Güvenlik doğrulaması başarısız oldu. Doğrulamayı tekrar yapıp deneyin.';
   if (/Email not confirmed/i.test(m)) return 'E-posta adresi henüz onaylanmamış.';
   if (/User already registered/i.test(m)) return 'Bu e-posta ile kayıtlı bir kullanıcı zaten var.';
   if (/Password should be at least/i.test(m)) return 'Şifre en az 6 karakter olmalı.';
@@ -638,7 +643,71 @@ function ekranBaglanti() {
 }
 
 /* ---------- Oturum ---------- */
-let girisHata = 0, girisKilit = 0;
+/* Hatalı giriş kilidi: bu cihazda kalıcıdır, sayfa yenilense de sıfırlanmaz */
+const KILIT_ANAHTAR = 'ofs_giris_kilit';
+const kilitOku = () => { try { return JSON.parse(localStorage.getItem(KILIT_ANAHTAR) || '{}') || {}; } catch { return {}; } };
+const kilitYaz = k => { try { localStorage.setItem(KILIT_ANAHTAR, JSON.stringify(k)); } catch {} };
+const epostaAnahtar = e => String(e || '').trim().toLocaleLowerCase('tr-TR');
+function kilitKalan(email) {
+  const k = kilitOku(), simdi = Date.now();
+  const t = Math.max(k.h?.[epostaAnahtar(email)]?.kilit || 0, k.cihaz?.kilit || 0);
+  return Math.max(0, Math.ceil((t - simdi) / 1000));
+}
+function hataKaydet(email) {
+  const k = kilitOku(), simdi = Date.now(), e = epostaAnahtar(email);
+  k.h = k.h || {};
+  for (const x in k.h) if (simdi - (k.h[x].son || 0) > 864e5) delete k.h[x];
+  const h = k.h[e] || {n: 0, kilit: 0, son: 0};
+  h.n++; h.son = simdi;
+  if (h.n >= 5) h.kilit = simdi + Math.min(15 * 60e3, 60e3 * 2 ** (h.n - 5));   // 1 → 2 → 4 → 8 → 15 dk
+  k.h[e] = h;
+  const c = k.cihaz || {liste: [], kilit: 0};
+  c.liste = (c.liste || []).filter(t => simdi - t < 15 * 60e3);
+  c.liste.push(simdi);
+  if (c.liste.length >= 10) c.kilit = simdi + 10 * 60e3;   // farklı e-postalar denenirse cihaz kilidi
+  k.cihaz = c;
+  kilitYaz(k);
+  return h.n;
+}
+function basariKaydet(email) {
+  const k = kilitOku();
+  if (k.h) delete k.h[epostaAnahtar(email)];
+  k.cihaz = {liste: [], kilit: 0};
+  kilitYaz(k);
+}
+const sureYazi = sn => sn >= 60 ? `${Math.floor(sn / 60)} dk ${String(sn % 60).padStart(2, '0')} sn` : `${sn} sn`;
+
+/* Robot doğrulaması (Cloudflare Turnstile) — Supabase sunucusu da ayrıca doğrular */
+let tsSoz = null;
+function turnstileYukle() {
+  if (window.turnstile) return Promise.resolve(true);
+  if (tsSoz) return tsSoz;
+  tsSoz = new Promise(res => {
+    const sc = document.createElement('script');
+    sc.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    sc.async = true;
+    sc.onload = () => res(!!window.turnstile);
+    sc.onerror = () => { tsSoz = null; res(false); };
+    document.head.appendChild(sc);
+  });
+  return tsSoz;
+}
+async function robotKutusu(kap) {
+  if (!CONFIG.TURNSTILE_SITE_KEY || !kap) return null;
+  const d = {token: null, id: null, sifirla() { d.token = null; try { if (d.id != null) window.turnstile.reset(d.id); } catch {} }};
+  kap.innerHTML = '<span class="sub">Güvenlik doğrulaması yükleniyor…</span>';
+  if (!await turnstileYukle() || !document.body.contains(kap)) {
+    kap.innerHTML = '<span class="sub red-t">Güvenlik doğrulaması yüklenemedi. İnternet bağlantınızı kontrol edip sayfayı yenileyin.</span>';
+    return d;
+  }
+  kap.innerHTML = '';
+  d.id = window.turnstile.render(kap, {
+    sitekey: CONFIG.TURNSTILE_SITE_KEY, language: 'tr',
+    theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light',
+    callback: t => { d.token = t; }, 'expired-callback': () => { d.token = null; }, 'error-callback': () => { d.token = null; }
+  });
+  return d;
+}
 
 function authKabuk(baslik, aciklama, govde) {
   document.body.className = '';
@@ -659,6 +728,8 @@ function ekranGiris(mod = 'giris') {
       <form id="fg" class="stack">
         <label class="f"><span>E-posta</span><input class="inp" type="email" name="e" required autocomplete="username" maxlength="120" placeholder="ornek@firma.com"></label>
         <label class="f"><span style="display:flex;justify-content:space-between">Şifre <a href="#" id="unut" class="sub" style="font-weight:500">Şifremi unuttum</a></span><input class="inp" type="password" name="p" required autocomplete="current-password" maxlength="72"></label>
+        <div id="robot" class="robot${CONFIG.TURNSTILE_SITE_KEY ? '' : ' hidden'}"></div>
+        <p id="kilit-m" class="sub red-t hidden" role="status" style="text-align:center"></p>
         <button class="btn gold" style="width:100%">Giriş yap</button>
         ${ozelBag ? '<div class="row" style="justify-content:center"><a href="#" id="bagsifirla" class="sub">Bağlantı ayarı</a></div>' : ''}
       </form>`);
@@ -666,6 +737,7 @@ function ekranGiris(mod = 'giris') {
     authKabuk('Şifre yenileme', 'E-posta adresinizi girin, şifre yenileme bağlantısı gönderelim.', `
       <form id="fu" class="stack">
         <label class="f"><span>E-posta</span><input class="inp" type="email" name="e" required maxlength="120"></label>
+        <div id="robot" class="robot${CONFIG.TURNSTILE_SITE_KEY ? '' : ' hidden'}"></div>
         <button class="btn gold" style="width:100%">Bağlantı gönder</button>
         <button type="button" class="btn ghost" id="geri" style="width:100%">Girişe dön</button>
       </form>`);
@@ -678,20 +750,46 @@ function ekranGiris(mod = 'giris') {
       </form>`);
   }
 
+  const robotSoz = robotKutusu($('#robot'));
   const fg = $('#fg');
   if (fg) {
+    const btn = $('button.gold', fg), km = $('#kilit-m');
+    let sayac = null;
+    const kilitGoster = () => {
+      clearInterval(sayac);
+      const guncelle = () => {
+        if (!document.body.contains(km)) return clearInterval(sayac);
+        const kalan = kilitKalan(fg.e.value);
+        if (kalan > 0) {
+          km.textContent = `Çok fazla hatalı deneme. ${sureYazi(kalan)} sonra tekrar deneyebilirsiniz.`;
+          km.classList.remove('hidden'); btn.disabled = true;
+        } else {
+          km.classList.add('hidden'); btn.disabled = false; clearInterval(sayac);
+        }
+      };
+      guncelle();
+      if (kilitKalan(fg.e.value) > 0) sayac = setInterval(guncelle, 1000);
+    };
+    fg.e.addEventListener('input', kilitGoster);
+    kilitGoster();
     fg.onsubmit = async e => {
       e.preventDefault();
-      const kalan = Math.ceil((girisKilit - Date.now()) / 1000);
-      if (kalan > 0) return toast(`Çok fazla hatalı deneme. ${kalan} sn sonra tekrar deneyin.`, 'err');
-      await mesgul($('button.gold', fg), async () => {
-        const {error} = await S.sb.auth.signInWithPassword({email: fg.e.value.trim(), password: fg.p.value});
+      if (kilitKalan(fg.e.value) > 0) return kilitGoster();
+      const robot = await robotSoz;
+      if (robot && !robot.token) return toast('Lütfen güvenlik doğrulamasını tamamlayın.', 'err');
+      await mesgul(btn, async () => {
+        const email = fg.e.value.trim();
+        const {error} = await S.sb.auth.signInWithPassword({email, password: fg.p.value, options: robot ? {captchaToken: robot.token} : undefined});
+        robot?.sifirla();
         if (error) {
-          girisHata++;
-          if (girisHata >= 5) girisKilit = Date.now() + 30000 * Math.min(girisHata - 4, 10);
-          return toast(hataMesaji(error), 'err');
+          if (/Invalid login credentials|captcha/i.test(error.message || '')) {
+            const n = hataKaydet(email);
+            if (n >= 3 && n < 5) toast(`${hataMesaji(error)} Kalan deneme hakkı: ${5 - n}.`, 'err');
+            else toast(hataMesaji(error), 'err');
+          } else toast(hataMesaji(error), 'err');
+          return setTimeout(kilitGoster, 0);
         }
-        girisHata = 0;
+        basariKaydet(email);
         $('#toasts').innerHTML = '';
         try { localStorage.removeItem('ofs_son_islem'); } catch {}
         await baslat();
@@ -710,8 +808,11 @@ function ekranGiris(mod = 'giris') {
   if (fu) {
     fu.onsubmit = async e => {
       e.preventDefault();
+      const robot = await robotSoz;
+      if (robot && !robot.token) return toast('Lütfen güvenlik doğrulamasını tamamlayın.', 'err');
       await mesgul($('button.gold', fu), async () => {
-        const {error} = await S.sb.auth.resetPasswordForEmail(fu.e.value.trim(), {redirectTo: location.origin + location.pathname});
+        const {error} = await S.sb.auth.resetPasswordForEmail(fu.e.value.trim(), {redirectTo: location.origin + location.pathname, captchaToken: robot?.token || undefined});
+        robot?.sifirla();
         if (error) return toast(hataMesaji(error), 'err');
         toast('Bağlantı gönderildi. E-postanızı kontrol edin.');
         ekranGiris();
