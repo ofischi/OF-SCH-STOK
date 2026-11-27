@@ -1206,7 +1206,7 @@ function alanGrafik(kap, veri, seriler) {
     const ml = 40, mr = 8, mt = 8, mb = 26, iw = W - ml - mr, ih = H - mt - mb;
     const enCok = Math.max(1, ...veri.flatMap(d => seriler.map(s => d[s.k])));
     const ham = enCok / 4, us = Math.pow(10, Math.floor(Math.log10(ham)));
-    const adim = [1, 2, 2.5, 5, 10].map(x => x * us).find(x => x >= ham) || ham;
+    const adim = Math.max(1, Math.ceil([1, 2, 5, 10].map(x => x * us).find(x => x >= ham) || ham));
     const ust = Math.max(adim * 4, Math.ceil(enCok / adim) * adim);
     const X = i => ml + (veri.length === 1 ? iw / 2 : (i * iw) / (veri.length - 1));
     const Y = v => mt + ih - (v / ust) * ih;
