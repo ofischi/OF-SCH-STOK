@@ -20,8 +20,12 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="robots" content="noindex, nofollow">
 <title>OFISCHI · Stok Yönetimi</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+<script>
+if (window.top !== window.self) { document.documentElement.style.display = 'none'; try { window.top.location.replace(window.self.location.href); } catch (e) {} }
+function ofsYedek(n, u) { window['__ofs_cdn_' + n] = 1; var s = document.createElement('script'); s.src = u; s.crossOrigin = 'anonymous'; document.head.appendChild(s); }
+</script>
+<script src="supabase.min.js" onerror="ofsYedek('sb','https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js')"></script>
+<script src="xlsx.full.min.js" defer onerror="ofsYedek('x','https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js')"></script>
 <script>(function(){try{var t=localStorage.getItem('ofs_tema');if(t==='dark'||(t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.classList.add('dark')}catch(e){}})();</script>
 <style>
 :root{
@@ -408,6 +412,7 @@ const IC = {
   yazdir: '<path d="M6 9V3h12v6"/><path d="M6 18H4v-7h16v7h-2"/><path d="M6 14h12v7H6z"/>',
   excel: '<path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M14 3v6h6M9 13l4 5M13 13l-4 5"/>',
   pdf: '<path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M14 3v6h6M8 15h8M8 18h5"/>',
+  goz: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   cik: '<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/>',
   panelsol: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
   ara: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
@@ -444,6 +449,11 @@ function hataMesaji(e) {
   if (/JWT|session/i.test(m) && /expired|invalid/i.test(m)) return 'Oturum süresi doldu. Lütfen tekrar giriş yapın.';
   if (/permission denied|row-level security/i.test(m)) return 'Bu işlem için yetkiniz yok.';
   if (/invalid input syntax/i.test(m)) return 'Girilen değerlerden biri geçersiz.';
+  if (/deadlock|could not serialize|canceling statement|timeout/i.test(m)) return 'Aynı anda başka bir işlem yapıldı. Lütfen tekrar deneyin.';
+  if (/violates|constraint|relation|column|syntax|function|null value|duplicate key|out of range|does not exist|operator|could not|JSON|schema|PGRST|unexpected|undefined/i.test(m)) {
+    console.warn('Teknik hata:', m);
+    return 'İşlem tamamlanamadı. Bilgileri kontrol edip tekrar deneyin.';
+  }
   return m.replace(/^.*?ERROR:\s*/, '');
 }
 
@@ -638,6 +648,7 @@ function ekranGiris(mod = 'giris') {
         }
         girisHata = 0;
         $('#toasts').innerHTML = '';
+        try { localStorage.removeItem('ofs_son_islem'); } catch {}
         await baslat();
       });
     };
@@ -673,6 +684,7 @@ function ekranGiris(mod = 'giris') {
         if (error) return toast(hataMesaji(error), 'err');
         toast('Şifreniz güncellendi.');
         history.replaceState(null, '', location.pathname);
+        try { localStorage.removeItem('ofs_son_islem'); } catch {}
         await baslat();
       });
     };
@@ -682,6 +694,7 @@ function ekranGiris(mod = 'giris') {
 async function cikisYap() {
   popKapat();
   canliDurdur();
+  try { localStorage.removeItem('ofs_son_islem'); } catch {}
   await S.sb.auth.signOut();
   S.prof = null; S.user = null;
   ekranGiris();
@@ -730,6 +743,15 @@ async function baslat() {
   $('#root').innerHTML = '<div class="spin"></div>';
   const {data: {session}} = await S.sb.auth.getSession();
   if (!session) return ekranGiris();
+  const kayitli = +(localStorage.getItem('ofs_son_islem') || 0);
+  if (kayitli && Date.now() - kayitli > OTURUM_SURESI) {
+    await S.sb.auth.signOut();
+    localStorage.removeItem('ofs_son_islem');
+    ekranGiris();
+    toast('30 dakika işlem yapılmadığı için oturum güvenlik amacıyla kapatıldı.');
+    return;
+  }
+  sonYazim = 0; islemKaydet();
   S.user = session.user;
   const {data: prof, error} = await S.sb.from('profiles').select('*').eq('id', S.user.id).maybeSingle();
   if (error) { toast(hataMesaji(error), 'err'); return ekranGiris(); }
@@ -1148,13 +1170,13 @@ function yazdir(baslik, icerik, yatay = false) {
 
 function excelIndir(dosya, sayfa, satirlar) {
   if (window.XLSX) {
-    const ws = XLSX.utils.aoa_to_sheet(satirlar);
+    const ws = XLSX.utils.aoa_to_sheet(satirlar.map(r => r.map(c => typeof c === 'string' && /^[=+\-@\t\r]/.test(c) ? "'" + c : c)));
     ws['!cols'] = satirlar[0].map((_, i) => ({wch: Math.min(48, Math.max(10, ...satirlar.slice(0, 200).map(r => String(r[i] ?? '').length + 2)))}));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, sayfa.slice(0, 31));
     XLSX.writeFile(wb, dosya + '.xlsx');
   } else {
-    const csv = satirlar.map(r => r.map(c => { const s = String(c ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(';')).join('\r\n');
+    const csv = satirlar.map(r => r.map(c => { let s = String(c ?? ''); if (typeof c === 'string' && /^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(';')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], {type: 'text/csv;charset=utf-8'}));
     a.download = dosya + '.csv'; a.click();
@@ -1736,7 +1758,7 @@ async function sayimDetay(el, id) {
     <label class="f"><span>Göster</span><select class="inp" id="gos"><option value="">Tümü</option><option value="sayilan">Sayılanlar</option><option value="sayilmayan">Sayılmayanlar</option><option value="fark">Farklı olanlar</option></select></label>
   </div>
   <div class="glass tw" id="liste"></div>
-  ${acik ? `<div class="row end" style="margin-top:14px"><button class="btn red" id="iptal">Sayımı İptal Et</button><button class="btn gold" id="bitir">Sayımı Tamamla</button></div>` : ''}`;
+  ${acik ? `<div class="row end" style="margin-top:14px">${yon() ? '' : '<span class="sub" style="margin-right:auto">Sayım bitince yöneticiye haber verin; stoğa işleme yönetici onayıyla yapılır.</span>'}<button class="btn red" id="iptal">Sayımı İptal Et</button>${yon() ? '<button class="btn gold" id="bitir">Sayımı Tamamla</button>' : ''}</div>` : ''}`;
   const ozet = () => {
     const ids = Object.keys(fiili);
     let artı = 0, eksi = 0;
@@ -1823,7 +1845,7 @@ async function sayimDetay(el, id) {
     }
   };
   if (acik) {
-    $('#bitir').onclick = async e => {
+    if ($('#bitir')) $('#bitir').onclick = async e => {
       const btn = e.currentTarget;
       await bosalt();
       const n = Object.keys(fiili).length;
@@ -2152,15 +2174,26 @@ VIEWS.kullanicilar = async el => {
       govde: `<form id="fk" class="grid g2" autocomplete="off">
         <label class="f" style="grid-column:1/-1"><span>Ad Soyad *</span><input class="inp" name="ad" maxlength="120" required></label>
         <label class="f"><span>E-posta *</span><input class="inp" type="email" name="e" maxlength="120" required autocomplete="off"></label>
-        <label class="f"><span>Geçici şifre * (en az 8)</span><input class="inp" type="text" name="p" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+        <label class="f"><span>Geçici şifre * (en az 8)</span><span class="row" style="flex-wrap:nowrap;gap:6px"><input class="inp" type="password" name="p" minlength="8" maxlength="72" required autocomplete="new-password"><button type="button" class="btn icon sm" id="sgoster" aria-label="Şifreyi göster / gizle" title="Şifreyi göster / gizle">${ic('goz')}</button></span></label>
         <label class="f"><span>Rol</span><select class="inp" name="r"><option value="depocu">Depocu</option><option value="yonetici">Yönetici</option></select></label>
       </form><p class="sub" style="margin-top:12px">Kullanıcı bu e-posta ve şifreyle giriş yapar; ilk girişte "Hesabım" ekranından şifresini değiştirmesini isteyin.</p>`,
       alt: `<button class="btn" data-kapat>Vazgeç</button><button class="btn gold" data-ok>Oluştur</button>`
     });
+    $('#sgoster', m).onclick = () => { const i = $('#fk', m).p; i.type = i.type === 'password' ? 'text' : 'password'; };
     $('[data-ok]', m).onclick = e => {
       const fk = $('#fk', m);
       if (!fk.reportValidity()) return;
       mesgul(e.currentTarget, async () => {
+        // 2) Önce sunucu fonksiyonu (herkese açık kayıt kapalıyken de çalışır)
+        const govde = {ad_soyad: fk.ad.value.trim(), email: fk.e.value.trim(), sifre: fk.p.value, rol: fk.r.value};
+        const {error: fe} = await S.sb.functions.invoke('kullanici-olustur', {body: govde});
+        if (!fe) { toast('Kullanıcı oluşturuldu.'); m.kapat(); rotala(); return; }
+        const durum = fe.context?.status;
+        let sMesaj = null;
+        try { sMesaj = (await fe.context.json())?.hata; } catch {}
+        const fonksiyonYok = durum === 404 || fe.name === 'FunctionsFetchError' || fe.name === 'FunctionsRelayError';
+        if (!fonksiyonYok) return toast(sMesaj || hataMesaji(fe), 'err');
+        // Yedek: sunucu fonksiyonu kurulu değilse eski yöntem
         const c = config();
         const ayri = supabase.createClient(c.SUPABASE_URL, c.SUPABASE_KEY, {auth: {persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'ofs_gecici'}});
         const {data: d, error} = await ayri.auth.signUp({email: fk.e.value.trim(), password: fk.p.value, options: {data: {ad_soyad: fk.ad.value.trim()}}});
@@ -2168,7 +2201,7 @@ VIEWS.kullanicilar = async el => {
         if (!d.user || (d.user.identities && d.user.identities.length === 0)) return toast('Bu e-posta ile kayıtlı bir kullanıcı zaten var.', 'err');
         const {error: e2} = await S.sb.rpc('kullanici_guncelle', {p_id: d.user.id, p_ad: fk.ad.value.trim(), p_rol: fk.r.value, p_aktif: true});
         if (e2) return toast(hataMesaji(e2), 'err');
-        toast(d.session ? 'Kullanıcı oluşturuldu.' : 'Kullanıcı oluşturuldu. E-posta onayı açıksa kullanıcı önce e-postasını onaylamalı.');
+        toast(d.session ? 'Kullanıcı oluşturuldu (yedek yöntem: kullanici-olustur fonksiyonu kurulu değil).' : 'Kullanıcı oluşturuldu. E-posta onayı açıksa kullanıcı önce e-postasını onaylamalı.');
         m.kapat(); rotala();
       });
     };
@@ -2216,7 +2249,9 @@ VIEWS.ayarlar = el => {
     $(`#lk-${t}`).classList.toggle('hidden', !lg[t]);
     $(`#ln-${t}`).textContent = lg[t] ? 'Yüklendi' : (lg[t === 'acik' ? 'koyu' : 'acik'] ? 'Diğer logo kullanılıyor' : 'Yazı logo kullanılıyor');
   });
+  const cdnKullaniliyor = window.__ofs_cdn_sb || window.__ofs_cdn_x;
   el.innerHTML = `
+  ${cdnKullaniliyor ? `<div class="warn" style="max-width:760px">${ic('uyari')}<span>Kütüphaneler yedek olarak dış sunucudan (jsDelivr) yükleniyor. Güvenlik için <b>supabase.min.js</b> ve <b>xlsx.full.min.js</b> dosyalarını GitHub reponuza yükleyin.</span></div>` : ''}
   <form id="fa" class="glass" style="max-width:760px">
     <div class="ch"><div class="ct">Genel</div><div class="cd">${FIYAT_AKTIF ? 'Firma adı ve döviz kurları' : 'Firma adı'}</div></div>
     <div class="cc stack">
@@ -2304,11 +2339,30 @@ VIEWS.hesap = el => {
   };
 };
 
+/* ---------- Hareketsizlikte otomatik çıkış (ortak bilgisayarlar için) ---------- */
+const OTURUM_SURESI = 30 * 60 * 1000;
+let sonIslem = Date.now(), sonYazim = 0;
+function islemKaydet() {
+  sonIslem = Date.now();
+  if (sonIslem - sonYazim > 15000) { sonYazim = sonIslem; try { localStorage.setItem('ofs_son_islem', String(sonIslem)); } catch {} }
+}
+['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(ev => addEventListener(ev, islemKaydet, {passive: true, capture: true}));
+const sonIslemZamani = () => Math.max(sonIslem, +(localStorage.getItem('ofs_son_islem') || 0));
+async function sureDolduCikis() {
+  if (!S.prof) return;
+  await cikisYap();
+  toast('30 dakika işlem yapılmadığı için oturum güvenlik amacıyla kapatıldı.');
+}
+setInterval(() => { if (S.prof && Date.now() - sonIslemZamani() > OTURUM_SURESI) sureDolduCikis(); }, 30000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.prof && Date.now() - sonIslemZamani() > OTURUM_SURESI) sureDolduCikis(); });
+
 /* ---------- Açılış ---------- */
 (async function () {
   temaUygula();
   swKaydet();
   cevrimdisiGoster();
+  if (window.top !== window.self) return;
+  for (let i = 0; i < 100 && !window.supabase; i++) await new Promise(r => setTimeout(r, 100));
   if (!window.supabase) { $('#root').innerHTML = '<div class="auth"><div class="box glass empty">Gerekli kütüphane yüklenemedi. İnternet bağlantınızı kontrol edip sayfayı yenileyin.</div></div>'; return; }
   const c = config();
   if (!c) return ekranBaglanti();
