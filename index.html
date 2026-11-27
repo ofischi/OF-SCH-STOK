@@ -251,6 +251,9 @@ table.rt .r{text-align:right}
 @keyframes fi{from{opacity:0}}
 @keyframes zi{from{opacity:0;transform:scale(.97)}}
 
+@keyframes salla{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+.modal.salla{animation:salla .35s ease}
+
 /* Açılır menü */
 .pop{position:fixed;z-index:90;min-width:220px;max-width:min(340px,calc(100vw - 16px));padding:4px;background:hsl(var(--popover));border:1px solid hsl(var(--border));border-radius:var(--radius);box-shadow:0 10px 30px -8px rgba(0,0,0,.3);animation:zi .12s ease}
 .pop .pl{padding:6px 8px;font-size:14px;font-weight:600}
@@ -474,16 +477,32 @@ function hataMesaji(e) {
   return m.replace(/^.*?ERROR:\s*/, '');
 }
 
-function modal({baslik, govde, alt = '', genis = false, onAc}) {
+function modal({baslik, govde, alt = '', genis = false, onAc, serbest = false}) {
   const ov = document.createElement('div');
   ov.className = 'ov';
   ov.innerHTML = `<div class="modal ${genis ? 'wide' : ''}" role="dialog" aria-modal="true">
     <div class="mh"><h2>${baslik}</h2><button class="btn icon sm ghost" data-kapat aria-label="Kapat">${ic('x')}</button></div>
     <div class="mb">${govde}</div>${alt ? `<div class="mf">${alt}</div>` : ''}</div>`;
+  // Yazı girilen pencereler dışarı tıklayınca kapanmaz; yalnızca Vazgeç / × / kaydet ile kapanır
+  let kirli = false, disBasildi = false;
+  ov.addEventListener('input', () => { kirli = true; }, true);
+  ov.addEventListener('change', () => { kirli = true; }, true);
+  const formlu = () => !serbest && !!ov.querySelector('input:not([type=hidden]):not([type=file]),textarea,select');
+  const ustte = () => { const l = document.querySelectorAll('.ov'); return l[l.length - 1] === ov; };
   const kapat = () => { ov.remove(); document.removeEventListener('keydown', esck); };
-  const esck = e => { if (e.key === 'Escape') kapat(); };
-  ov.addEventListener('mousedown', e => { if (e.target === ov) kapat(); });
-  ov.addEventListener('click', e => { if (e.target.closest('[data-kapat]')) kapat(); });
+  const salla = () => { const md = ov.querySelector('.modal'); md.classList.remove('salla'); void md.offsetWidth; md.classList.add('salla'); };
+  const esck = async e => {
+    if (e.key !== 'Escape' || !ustte() || (typeof TUR !== 'undefined' && TUR.aktif)) return;
+    e.stopPropagation();
+    if (formlu() && kirli && !await onayla('Değişiklikler kaybolacak', 'Yazdıklarınız kaydedilmedi. Pencere kapatılsın mı?', 'Kapat', true)) return;
+    kapat();
+  };
+  ov.addEventListener('mousedown', e => { disBasildi = e.target === ov; });
+  ov.addEventListener('click', e => {
+    if (e.target.closest('[data-kapat]')) return kapat();
+    if (e.target === ov && disBasildi) { if (formlu()) salla(); else kapat(); }
+    disBasildi = false;
+  });
   document.addEventListener('keydown', esck);
   document.body.appendChild(ov);
   const m = $('.modal', ov);
@@ -867,7 +886,7 @@ function bildirimAc(btn) {
 function aramaAc() {
   popKapat();
   const m = modal({
-    baslik: 'Ürün ara',
+    baslik: 'Ürün ara', serbest: true,
     govde: `<input class="inp" id="aq" placeholder="Model kodu, model adı, SKU, renk, kumaş…" autocomplete="off"><div id="ar" style="margin-top:12px;max-height:55vh;overflow-y:auto"></div><p class="sub" style="margin-top:10px">Kısayol: Ctrl + K</p>`
   });
   const aq = $('#aq', m), ar = $('#ar', m);
