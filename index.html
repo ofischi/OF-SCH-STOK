@@ -900,7 +900,7 @@ function iskelet() {
       <div class="side-h"><a class="logo-a" href="#/panel" title="${esc(firmaAdi())}">${logoHtml()}</a></div>
       <div class="side-c">${NAV.filter(g => !g.y || yon()).map(g => `<div class="grp"><div class="grp-l">${g.g}</div><nav>${g.l.map(n =>
         `<a href="#/${n[0]}" data-r="${n[0]}" title="${n[1]}">${ic(n[0])}<span>${n[1]}</span></a>`).join('')}</nav></div>`).join('')}</div>
-      <div class="side-f"><button class="user-b" id="sb-user" title="${esc(ad)}"><span class="av">${esc(basHarf(ad))}</span><span class="t"><b>${esc(ad)}</b><span>${yon() ? 'Yönetici' : 'Depocu'} · ${esc(S.user.email)}</span></span><span class="muted logo-t" style="display:grid">${ic('yukariasagi')}</span></button></div>
+      <div class="side-f"><button class="user-b" id="sb-user" title="${esc(ad)}"><span class="av">${esc(basHarf(ad))}</span><span class="t"><b>${esc(ad)}</b><span>${S.prof.gizli ? 'Süper yönetici' : yon() ? 'Yönetici' : 'Depocu'} · ${esc(S.user.email)}</span></span><span class="muted logo-t" style="display:grid">${ic('yukariasagi')}</span></button></div>
     </aside>
     <div class="inset">
       <header class="hdr">
@@ -2340,7 +2340,8 @@ VIEWS.hesap = el => {
   el.innerHTML = `<div class="glass card stack" style="max-width:520px">
     <div><div class="sub">Ad Soyad</div><b>${esc(S.prof.ad_soyad || '—')}</b></div>
     <div><div class="sub">E-posta</div>${esc(S.user.email)}</div>
-    <div><div class="sub">Rol</div>${yon() ? 'Yönetici' : 'Depocu'}</div>
+    <div><div class="sub">Rol</div>${S.prof.gizli ? 'Süper yönetici' : yon() ? 'Yönetici' : 'Depocu'}</div>
+    ${S.prof.gizli ? '<p class="sub">Bu hesap gizlidir: Kullanıcılar listesinde görünmez, diğer yöneticiler değiştiremez; yaptığın işlemler kayıtlarda <b>Sistem</b> adıyla görünür.</p>' : ''}
     <div class="row"><button class="btn" id="tur-bas">${ic('rehber')} Rehber turunu başlat</button></div>
   </div>
   <form id="fs" class="glass card stack" style="max-width:520px;margin-top:14px">
