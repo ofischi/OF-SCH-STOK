@@ -25,7 +25,6 @@ if (window.top !== window.self) { document.documentElement.style.display = 'none
 function ofsYedek(n, u) { window['__ofs_cdn_' + n] = 1; var s = document.createElement('script'); s.src = u; s.crossOrigin = 'anonymous'; document.head.appendChild(s); }
 </script>
 <script src="supabase.min.js" onerror="ofsYedek('sb','https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js')"></script>
-<script src="xlsx.full.min.js" defer onerror="ofsYedek('x','https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js')"></script>
 <script>(function(){try{var t=localStorage.getItem('ofs_tema');if(t==='dark'||(t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.classList.add('dark')}catch(e){}})();</script>
 <style>
 :root{
@@ -563,8 +562,12 @@ document.addEventListener('click', e => { if (e.target.closest('[data-tema]')) t
 
 let MARKA = (() => { try { return JSON.parse(localStorage.getItem('ofs_marka') || 'null'); } catch { return null; } })() || {firma_adi: 'OFISCHI', logo_acik: null, logo_koyu: null};
 function markaKaydet(m) {
-  MARKA = {firma_adi: m.firma_adi || 'OFISCHI', logo_acik: m.logo_acik || null, logo_koyu: m.logo_koyu || null};
-  try { localStorage.setItem('ofs_marka', JSON.stringify(MARKA)); } catch { try { localStorage.setItem('ofs_marka', JSON.stringify({...MARKA, logo_acik: null, logo_koyu: null})); } catch {} }
+  MARKA = {...MARKA};
+  if (m.firma_adi) MARKA.firma_adi = m.firma_adi;
+  if ('logo_acik' in m) MARKA.logo_acik = m.logo_acik || null;
+  if ('logo_koyu' in m) MARKA.logo_koyu = m.logo_koyu || null;
+  if ('logo_guncelleme' in m) MARKA.logo_guncelleme = m.logo_guncelleme || null;
+  try { localStorage.setItem('ofs_marka', JSON.stringify(MARKA)); } catch { try { localStorage.setItem('ofs_marka', JSON.stringify({...MARKA, logo_acik: null, logo_koyu: null, logo_guncelleme: null})); } catch {} }
 }
 const guvenliLogo = s => typeof s === 'string' && /^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(s) ? s : null;
 const firmaAdi = () => S.ay?.firma_adi || MARKA.firma_adi || 'OFISCHI';
@@ -576,11 +579,16 @@ function logoHtml(altYazi = 'Stok Yönetimi') {
   }
   return `<span class="mark">${esc(firmaAdi().charAt(0))}</span><span class="logo-t"><b>${ad}</b><span>${esc(altYazi)}</span></span>`;
 }
-async function markaYukle() {
+async function markaYukle(zorla = false) {
+  const once = JSON.stringify([MARKA.firma_adi, MARKA.logo_acik?.length, MARKA.logo_koyu?.length, MARKA.logo_guncelleme]);
   try {
-    const {data, error} = await S.sb.rpc('marka_getir');
+    let {data, error} = await S.sb.rpc('marka_getir', {p_bilinen: zorla ? null : (MARKA.logo_guncelleme || null)});
+    if (error) ({data, error} = await S.sb.rpc('marka_getir'));
     if (!error && data) markaKaydet(data);
   } catch {}
+  const degisti = once !== JSON.stringify([MARKA.firma_adi, MARKA.logo_acik?.length, MARKA.logo_koyu?.length, MARKA.logo_guncelleme]);
+  if (degisti) $$('.logo-c, .side-h .logo-a').forEach(e => e.innerHTML = logoHtml());
+  return degisti;
 }
 const basHarf = ad => String(ad || '?').trim().split(/\s+/).slice(0, 2).map(x => x.charAt(0)).join('').toLocaleUpperCase('tr-TR') || '?';
 
@@ -731,7 +739,7 @@ async function tumunuGetir(tablo, secim = '*', sira = 'id') {
 }
 
 async function ayarYukle() {
-  const {data, error} = await S.sb.from('ayarlar').select('*').eq('id', 1).single();
+  const {data, error} = await S.sb.from('ayarlar').select('id,firma_adi,usd_kur,eur_kur,kur_guncelleme,guncelleyen').eq('id', 1).single();
   if (error) throw error;
   S.ay = data;
 }
@@ -771,7 +779,12 @@ async function baslat() {
   }
   sonYazim = 0; islemKaydet();
   S.user = session.user;
-  const {data: prof, error} = await S.sb.from('profiles').select('*').eq('id', S.user.id).maybeSingle();
+  // Profil, ayarlar ve ürünler aynı anda istenir (sırayla beklemek yerine)
+  const [pr, ayS, katS] = await Promise.allSettled([
+    S.sb.from('profiles').select('*').eq('id', S.user.id).maybeSingle(),
+    ayarYukle(), katalogYukle()
+  ]);
+  const {data: prof, error} = pr.status === 'fulfilled' ? pr.value : {error: pr.reason};
   if (error) { toast(hataMesaji(error), 'err'); return ekranGiris(); }
   if (!prof || !prof.aktif) {
     authKabuk('Hesabınız onay bekliyor', 'Yönetici hesabınızı aktif ettiğinde giriş yapabilirsiniz.',
@@ -780,9 +793,10 @@ async function baslat() {
     return;
   }
   S.prof = prof;
-  try { await Promise.all([ayarYukle(), katalogYukle()]); }
-  catch (e) { toast(hataMesaji(e), 'err'); }
-  if (S.ay) markaKaydet(S.ay);
+  const hata = [ayS, katS].find(x => x.status === 'rejected');
+  if (hata) toast(hataMesaji(hata.reason), 'err');
+  if (fy()) { try { await katalogYukle(); } catch {} }
+  if (S.ay) markaKaydet({firma_adi: S.ay.firma_adi});
   iskelet();
   rotala();
   canliBaslat();
@@ -879,7 +893,7 @@ function aramaAc() {
 }
 
 async function verileriYenile() {
-  try { await Promise.all([ayarYukle(), katalogYukle()]); if (S.ay) markaKaydet(S.ay); iskelet(); rotala(); toast('Veriler yenilendi.'); }
+  try { await Promise.all([ayarYukle(), katalogYukle(), markaYukle()]); if (S.ay) markaKaydet({firma_adi: S.ay.firma_adi}); iskelet(); rotala(); toast('Veriler yenilendi.'); }
   catch (e) { toast(hataMesaji(e), 'err'); }
 }
 
@@ -1189,8 +1203,26 @@ function yazdir(baslik, icerik, yatay = false) {
   setTimeout(() => { fr.contentWindow.focus(); fr.contentWindow.print(); setTimeout(() => fr.remove(), 2000); }, 300);
 }
 
-function excelIndir(dosya, sayfa, satirlar) {
-  if (window.XLSX) {
+let xlsxSoz = null;
+function xlsxYukle() {
+  if (window.XLSX) return Promise.resolve(true);
+  if (xlsxSoz) return xlsxSoz;
+  const yukle = (src, cdn) => new Promise(res => {
+    const s = document.createElement('script');
+    s.src = src; if (cdn) s.crossOrigin = 'anonymous';
+    s.onload = () => res(!!window.XLSX); s.onerror = () => res(false);
+    document.head.appendChild(s);
+  });
+  xlsxSoz = yukle('xlsx.full.min.js').then(ok => {
+    if (ok) return true;
+    window.__ofs_cdn_x = 1;
+    return yukle('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', true);
+  }).then(ok => { if (!ok) xlsxSoz = null; return ok; });
+  return xlsxSoz;
+}
+async function excelIndir(dosya, sayfa, satirlar) {
+  await xlsxYukle();
+  if (window.XLSX && XLSX.utils?.aoa_to_sheet) {
     const ws = XLSX.utils.aoa_to_sheet(satirlar.map(r => r.map(c => typeof c === 'string' && /^[=+\-@\t\r]/.test(c) ? "'" + c : c)));
     ws['!cols'] = satirlar[0].map((_, i) => ({wch: Math.min(48, Math.max(10, ...satirlar.slice(0, 200).map(r => String(r[i] ?? '').length + 2)))}));
     const wb = XLSX.utils.book_new();
@@ -1305,22 +1337,31 @@ VIEWS.panel = async el => {
   const bugun = new Date(); bugun.setHours(0, 0, 0, 0);
   const bas8 = haftaBasi(new Date()); bas8.setDate(bas8.getDate() - 7 * 7);
 
-  const hareket8 = [];
-  for (let i = 0; i < 200000; i += 1000) {
-    const {data, error} = await S.sb.from('hareketler').select('miktar,yon,created_at').gte('created_at', bas8.toISOString()).order('id').range(i, i + 999);
-    if (error) throw error;
-    hareket8.push(...data);
-    if (data.length < 1000) break;
-  }
-  const [{data: son, error: e2}, {count: acikSayim}] = await Promise.all([
-    S.sb.from('fisler').select('id,fis_no,tip,neden,musteri,kullanici_adi,created_at,iptal_edildi,hareketler(miktar)').order('id', {ascending: false}).limit(7),
-    S.sb.from('sayimlar').select('id', {count: 'exact', head: true}).eq('durum', 'acik')
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Istanbul';
+  const [oz, sonR] = await Promise.all([
+    S.sb.rpc('panel_ozet', {p_bas: bas8.toISOString(), p_bugun: bugun.toISOString(), p_tz: tz}),
+    S.sb.from('fisler').select('id,fis_no,tip,neden,musteri,kullanici_adi,created_at,iptal_edildi,hareketler(miktar)').order('id', {ascending: false}).limit(7)
   ]);
-  if (e2) throw e2;
-
-  const bugunH = hareket8.filter(h => new Date(h.created_at) >= bugun);
-  const bg = bugunH.filter(h => h.yon > 0).reduce((a, h) => a + h.miktar, 0);
-  const bc = bugunH.filter(h => h.yon < 0).reduce((a, h) => a + h.miktar, 0);
+  if (sonR.error) throw sonR.error;
+  const son = sonR.data;
+  let bg = 0, bc = 0, acikSayim = 0, haftaSunucu = null, hareket8 = [];
+  if (!oz.error && oz.data) {
+    bg = +oz.data.bugun_g || 0; bc = +oz.data.bugun_c || 0; acikSayim = +oz.data.acik_sayim || 0;
+    haftaSunucu = Object.fromEntries((oz.data.haftalar || []).map(w => [w.h, w]));
+  } else {
+    // hiz.sql henüz çalıştırılmadıysa eski yöntem
+    for (let i = 0; i < 200000; i += 1000) {
+      const {data, error} = await S.sb.from('hareketler').select('miktar,yon,created_at').gte('created_at', bas8.toISOString()).order('id').range(i, i + 999);
+      if (error) throw error;
+      hareket8.push(...data);
+      if (data.length < 1000) break;
+    }
+    const {count} = await S.sb.from('sayimlar').select('id', {count: 'exact', head: true}).eq('durum', 'acik');
+    acikSayim = count || 0;
+    const bugunH = hareket8.filter(h => new Date(h.created_at) >= bugun);
+    bg = bugunH.filter(h => h.yon > 0).reduce((a, h) => a + h.miktar, 0);
+    bc = bugunH.filter(h => h.yon < 0).reduce((a, h) => a + h.miktar, 0);
+  }
 
   const haftalar = [];
   for (let i = 0; i < 8; i++) {
@@ -1328,6 +1369,8 @@ VIEWS.panel = async el => {
     const s = new Date(d); s.setDate(s.getDate() + 6);
     haftalar.push({t: d.getTime(), etiket: `${d.getDate()} ${AY_KISA[d.getMonth()]}`, uzun: `${d.getDate()} ${AY_KISA[d.getMonth()]} – ${s.getDate()} ${AY_KISA[s.getMonth()]}`, giris: 0, cikis: 0});
   }
+  const gunAnahtar = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  if (haftaSunucu) haftalar.forEach(w => { const x = haftaSunucu[gunAnahtar(new Date(w.t))]; if (x) { w.giris = +x.g || 0; w.cikis = +x.c || 0; } });
   hareket8.forEach(h => {
     const i = Math.floor((haftaBasi(h.created_at).getTime() - bas8.getTime()) / (7 * 864e5) + 0.01);
     if (haftalar[i]) haftalar[i][h.yon > 0 ? 'giris' : 'cikis'] += h.miktar;
@@ -2261,8 +2304,9 @@ function logoOku(dosya) {
   });
 }
 
-VIEWS.ayarlar = el => {
-  const lg = {acik: guvenliLogo(S.ay.logo_acik), koyu: guvenliLogo(S.ay.logo_koyu)};
+VIEWS.ayarlar = async el => {
+  const {data: lgv} = await S.sb.from('ayarlar').select('logo_acik,logo_koyu').eq('id', 1).single();
+  const lg = {acik: guvenliLogo(lgv?.logo_acik), koyu: guvenliLogo(lgv?.logo_koyu)};
   const onizle = () => ['acik', 'koyu'].forEach(t => {
     const src = lg[t] || lg[t === 'acik' ? 'koyu' : 'acik'];
     $(`#lp-${t}`).innerHTML = src ? `<img src="${src}" alt="${t === 'acik' ? 'Açık tema logosu' : 'Koyu tema logosu'}">`
@@ -2309,7 +2353,8 @@ VIEWS.ayarlar = el => {
   $('#lg-kaydet').onclick = e => mesgul(e.currentTarget, async () => {
     const {error} = await S.sb.from('ayarlar').update({logo_acik: lg.acik, logo_koyu: lg.koyu}).eq('id', 1);
     if (error) return toast(hataMesaji(error), 'err');
-    await ayarYukle(); markaKaydet(S.ay);
+    markaKaydet({logo_acik: lg.acik, logo_koyu: lg.koyu});
+    await markaYukle(true);
     toast('Logolar kaydedildi.');
     iskelet(); rotala();
   });
@@ -2328,7 +2373,7 @@ VIEWS.ayarlar = el => {
     mesgul($('button.gold', fm), async () => {
       const {error} = await S.sb.from('ayarlar').update(guncel).eq('id', 1);
       if (error) return toast(hataMesaji(error), 'err');
-      await ayarYukle(); markaKaydet(S.ay);
+      await ayarYukle(); markaKaydet({firma_adi: S.ay.firma_adi});
       toast('Ayarlar kaydedildi.');
       iskelet(); rotala();
     });
@@ -2615,7 +2660,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
     if (ev === 'PASSWORD_RECOVERY') { kurtarma = true; ekranGiris('yeni'); }
     if (ev === 'SIGNED_OUT' && S.prof) { S.prof = null; ekranGiris(); }
   });
-  await markaYukle();
+  markaYukle();
   if (kurtarma) { setTimeout(() => { if (!$('#fy') && !S.prof) baslat(); }, 4000); return; }
   await baslat();
 })();
