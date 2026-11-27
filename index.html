@@ -3,7 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#09090b">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
+<meta name="description" content="OFISCHI stok giriş, çıkış, sayım ve rapor uygulaması">
+<meta name="application-name" content="OFISCHI Stok">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="OFISCHI Stok">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="robots" content="noindex, nofollow">
 <title>OFISCHI · Stok Yönetimi</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
@@ -308,6 +322,18 @@ html:not(.dark) .lg-koyu{display:none!important}
   .filters{grid-template-columns:minmax(0,1fr)}
 }
 @media (max-width:380px){.hdr .xs-gizle{display:none}}
+/* Yüklü uygulama (tam ekran) */
+@media (display-mode:standalone){
+  body{overscroll-behavior-y:none}
+  .hdr{height:calc(64px + env(safe-area-inset-top));padding-top:env(safe-area-inset-top)}
+  .side-h{height:calc(64px + env(safe-area-inset-top));padding-top:calc(8px + env(safe-area-inset-top))}
+  .side-f{padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+  .main{padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+  .auth{padding-top:calc(24px + env(safe-area-inset-top))}
+  #toasts{bottom:calc(16px + env(safe-area-inset-bottom))}
+}
+.cevrimdisi{position:fixed;left:50%;transform:translateX(-50%);top:calc(12px + env(safe-area-inset-top));z-index:150;display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:hsl(var(--destructive));color:hsl(var(--destructive-foreground));font-size:13px;font-weight:600;box-shadow:0 10px 25px -5px rgba(0,0,0,.3)}
+.cevrimdisi svg{width:16px;height:16px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 .mark-k{display:none}
@@ -391,6 +417,8 @@ const IC = {
   uyari: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/>',
   deger: '<rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
   yukariasagi: '<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>',
+  telefon: '<rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/>',
+  wifi: '<path d="M12 20h.01M8.5 16.43a5 5 0 0 1 7 0M2 8.82a15 15 0 0 1 4.17-2.65M10.66 5c4.01-.36 8.14.9 11.34 3.76M16.85 11.25a10 10 0 0 1 2.22 1.68M5 13a10 10 0 0 1 5.24-2.76M2 2l20 20"/>',
   yukle: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/>'
 };
 const ic = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${IC[n] || ''}</svg>`;
@@ -565,7 +593,8 @@ function authKabuk(baslik, aciklama, govde) {
       <div class="ch"><div class="ct" style="font-size:22px">${baslik}</div><div class="cd">${aciklama}</div></div>
       <div class="cc">${govde}</div>
     </div>
-    <p class="sub">© ${new Date().getFullYear()} ${esc(firmaAdi())} · Stok Yönetimi</p></div>`;
+    <p class="sub">© ${new Date().getFullYear()} ${esc(firmaAdi())} · Stok Yönetimi${uygulamaModu() ? '' : ' · <a href="#" id="auth-yukle">Uygulamayı yükle</a>'}</p></div>`;
+  const ay = $('#auth-yukle'); if (ay) ay.onclick = e => { e.preventDefault(); uygulamaYukle(); };
 }
 
 function ekranGiris(mod = 'giris') {
@@ -753,10 +782,12 @@ function kullaniciMenu(btn, ust = false) {
     <a class="pi" href="#/hesap">${ic('hesap')} Hesabım</a>
     <button class="pi" data-pk data-yenile>${ic('yenile')} Verileri yenile</button>
     <button class="pi" data-pk data-tema>${ic('ay')} Tema değiştir</button>
+    ${uygulamaModu() ? '' : `<button class="pi" data-pk id="pyk">${ic('telefon')} Uygulamayı yükle</button>`}
     <div class="ps"></div>
     <button class="pi" data-pk id="pcx">${ic('cik')} Çıkış yap</button>`, {ust});
   if (!p) return;
   $('#pcx', p).onclick = cikisYap;
+  const pyk = $('#pyk', p); if (pyk) pyk.onclick = uygulamaYukle;
   $('[data-yenile]', p).onclick = verileriYenile;
 }
 
@@ -977,6 +1008,65 @@ function canliDurdur() {
   if (!kanal) return;
   try { S.sb.removeChannel(kanal); } catch {}
   kanal = null; kanalIlk = true;
+}
+
+/* ---------- Uygulama (PWA): yükleme, güncelleme, çevrimdışı ---------- */
+let yuklemeIstemi = null;
+const uygulamaModu = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const iosMu = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); yuklemeIstemi = e; });
+addEventListener('appinstalled', () => { yuklemeIstemi = null; toast('Uygulama yüklendi. Masaüstünden / ana ekrandan açabilirsiniz.'); });
+
+async function uygulamaYukle() {
+  popKapat();
+  if (uygulamaModu()) return toast('Uygulama zaten yüklü ve şu an uygulama olarak açık.');
+  if (yuklemeIstemi) {
+    yuklemeIstemi.prompt();
+    const {outcome} = await yuklemeIstemi.userChoice;
+    yuklemeIstemi = null;
+    if (outcome !== 'accepted') toast('Yükleme iptal edildi.');
+    return;
+  }
+  const adimlar = iosMu()
+    ? ['Bu sayfayı <b>Safari</b> ile açın.', 'Alttaki <b>Paylaş</b> düğmesine (kutudan çıkan ok) dokunun.', '<b>Ana Ekrana Ekle</b> seçeneğine dokunun.', 'Sağ üstte <b>Ekle</b>’ye dokunun; simge ana ekrana gelir.']
+    : /android/i.test(navigator.userAgent)
+      ? ['Bu sayfayı <b>Chrome</b> ile açın.', 'Sağ üstteki <b>⋮</b> menüsüne dokunun.', '<b>Uygulamayı yükle</b> ya da <b>Ana ekrana ekle</b> seçeneğine dokunun.', '<b>Yükle</b>’ye dokunun; simge ana ekrana gelir.']
+      : ['Bu sayfayı <b>Chrome</b> veya <b>Microsoft Edge</b> ile açın.', 'Adres çubuğunun sağındaki <b>yükle</b> simgesine (ekran + ok) tıklayın.', 'Simge görünmüyorsa: Chrome’da <b>⋮ → Yayınla, kaydet ve paylaş → Sayfayı uygulama olarak yükle</b>; Edge’de <b>… → Uygulamalar → Bu siteyi uygulama olarak yükle</b>.', '<b>Yükle</b>’ye tıklayın; masaüstüne ve Başlat menüsüne simge eklenir.'];
+  modal({
+    baslik: 'Uygulamayı yükle',
+    govde: `<ol style="padding-left:20px;display:grid;gap:10px">${adimlar.map(a => `<li>${a}</li>`).join('')}</ol>
+      <p class="sub" style="margin-top:14px">Yüklenen uygulama kendi penceresinde açılır, güncellemeleri kendisi alır. Çalışmak için internet bağlantısı gerekir.</p>`,
+    alt: `<button class="btn gold" data-kapat>Tamam</button>`
+  });
+}
+
+function cevrimdisiGoster() {
+  let b = $('#cevrimdisi');
+  if (navigator.onLine) { b?.remove(); return; }
+  if (!b) { document.body.insertAdjacentHTML('beforeend', `<div class="cevrimdisi" id="cevrimdisi" role="status">${ic('wifi')} İnternet bağlantısı yok · Kayıt yapılamaz</div>`); }
+}
+addEventListener('offline', cevrimdisiGoster);
+addEventListener('online', () => { cevrimdisiGoster(); if (S.prof) toast('Bağlantı geri geldi.'); });
+
+function swKaydet() {
+  if (!('serviceWorker' in navigator) || !/^https:|^http:\/\/(localhost|127\.0\.0\.1)/.test(location.href)) return;
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    const bildir = w => {
+      const t = document.createElement('div');
+      t.className = 'toast';
+      t.innerHTML = `<div class="row" style="flex-wrap:nowrap"><span style="flex:1">Yeni sürüm hazır.</span><button class="btn sm gold">Güncelle</button></div>`;
+      $('button', t).onclick = () => { w.postMessage('GUNCELLE'); t.remove(); };
+      $('#toasts').appendChild(t);
+    };
+    if (reg.waiting && navigator.serviceWorker.controller) bildir(reg.waiting);
+    reg.addEventListener('updatefound', () => {
+      const w = reg.installing;
+      w?.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) bildir(w); });
+    });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+  }).catch(() => {});
+  let yenilendi = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (!yenilendi) { yenilendi = true; location.reload(); } });
 }
 
 /* ---------- Varyant seçici ---------- */
@@ -2217,6 +2307,8 @@ VIEWS.hesap = el => {
 /* ---------- Açılış ---------- */
 (async function () {
   temaUygula();
+  swKaydet();
+  cevrimdisiGoster();
   if (!window.supabase) { $('#root').innerHTML = '<div class="auth"><div class="box glass empty">Gerekli kütüphane yüklenemedi. İnternet bağlantınızı kontrol edip sayfayı yenileyin.</div></div>'; return; }
   const c = config();
   if (!c) return ekranBaglanti();
