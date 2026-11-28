@@ -1306,8 +1306,12 @@ function yazdir(baslik, icerik, yatay = false) {
   const d = fr.contentWindow.document;
   d.open();
   d.write(`<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>${esc(baslik)}</title><style>
-    @page{size:A4 ${yatay ? 'landscape' : 'portrait'};margin:12mm}
-    *{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:11px;margin:0}
+    /* Kenar boşluğu 0: tarayıcı üst/alt bilgisini (tarih, adres, sayfa no) basmaz. Boşluğu aşağıdaki çerçeve verir. */
+    @page{size:A4 ${yatay ? 'landscape' : 'portrait'};margin:0}
+    *{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:11px;margin:0;padding:0 12mm;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    table.cerceve,table.cerceve>*>tr>td{border:0;padding:0;margin:0;background:none}
+    table.cerceve{width:100%;border-collapse:collapse}
+    .bosluk{height:12mm}
     .h{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #09090b;padding-bottom:8px;margin-bottom:12px}
     .h .b{font-size:20px;font-weight:800;letter-spacing:.2em;color:#09090b}.h .t{text-align:right}.h .t b{font-size:14px}
     table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #ccc;padding:5px 6px;text-align:left;vertical-align:top}
@@ -1315,9 +1319,11 @@ function yazdir(baslik, icerik, yatay = false) {
     .tot td{font-weight:700;background:#fafafa}.imza{display:flex;gap:40px;margin-top:40px}.imza div{flex:1;border-top:1px solid #333;padding-top:6px;text-align:center}
     .f{margin-top:14px;color:#777;font-size:9px}
   </style></head><body>
+  <table class="cerceve"><thead><tr><td><div class="bosluk"></div></td></tr></thead><tfoot><tr><td><div class="bosluk"></div></td></tr></tfoot><tbody><tr><td>
   <div class="h"><div class="b">${guvenliLogo(MARKA.logo_acik) || guvenliLogo(MARKA.logo_koyu) ? `<img src="${guvenliLogo(MARKA.logo_acik) || guvenliLogo(MARKA.logo_koyu)}" alt="" style="max-height:42px;max-width:220px">` : esc(firmaAdi())}</div><div class="t"><b>${esc(baslik)}</b><br>${esc(fTarih(new Date()))}</div></div>
   ${icerik}
-  <div class="f">${esc(firmaAdi())} Stok Yönetimi · Hazırlayan: ${esc(S.prof?.ad_soyad || '')}</div>
+  <div class="f">${esc(firmaAdi())} Stok Yönetimi · Hazırlayan: ${esc(S.prof?.gizli ? 'Sistem' : (S.prof?.ad_soyad || S.user?.email || ''))}</div>
+  </td></tr></tbody></table>
   </body></html>`);
   d.close();
   setTimeout(() => { fr.contentWindow.focus(); fr.contentWindow.print(); setTimeout(() => fr.remove(), 2000); }, 300);
