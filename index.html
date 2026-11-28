@@ -424,6 +424,7 @@ const IC = {
   urunler: '<path d="M4 7h16v13H4z"/><path d="M8 7V4h8v3"/>',
   kullanicilar: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6"/><path d="M17 11a3 3 0 100-6M22 21c0-3-2-5-4-5.6"/>',
   ayarlar: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/>',
+  rezervler: '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>',
   hesap: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
   menu: '<path d="M3 6h18M3 12h18M3 18h18"/>',
   yenile: '<path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
@@ -859,8 +860,13 @@ async function tumunuGetir(tablo, secim = '*', sira = 'id') {
 }
 
 async function ayarYukle() {
-  const {data, error} = await S.sb.from('ayarlar').select('id,firma_adi,usd_kur,eur_kur,kur_guncelleme,guncelleyen').eq('id', 1).single();
-  if (error) throw error;
+  const {data, error} = await S.sb.from('ayarlar').select('id,firma_adi,usd_kur,eur_kur,kur_guncelleme,guncelleyen,son_yedek').eq('id', 1).single();
+  if (error) {
+    // ozellikler.sql henüz çalıştırılmadıysa son_yedek sütunu yok
+    const r = await S.sb.from('ayarlar').select('id,firma_adi,usd_kur,eur_kur,kur_guncelleme,guncelleyen').eq('id', 1).single();
+    if (r.error) throw r.error;
+    S.ay = r.data; return;
+  }
   S.ay = data;
 }
 
@@ -1019,7 +1025,7 @@ async function verileriYenile() {
 
 /* ---------- İskelet ve yönlendirme ---------- */
 const NAV = [
-  {g: 'Stok', l: [['panel', 'Genel Bakış'], ['stok', 'Stok Durumu'], ['giris', 'Stok Girişi'], ['cikis', 'Stok Çıkışı'], ['hareketler', 'Hareketler'], ['sayim', 'Sayım'], ['raporlar', 'Raporlar']]},
+  {g: 'Stok', l: [['panel', 'Genel Bakış'], ['stok', 'Stok Durumu'], ['giris', 'Stok Girişi'], ['cikis', 'Stok Çıkışı'], ['rezervler', 'Rezervler'], ['hareketler', 'Hareketler'], ['sayim', 'Sayım'], ['raporlar', 'Raporlar']]},
   {g: 'Yönetim', y: 1, l: [['urunler', 'Ürünler'], ['kullanicilar', 'Kullanıcılar'], ['ayarlar', 'Ayarlar']]}
 ];
 const BASLIK = Object.fromEntries(NAV.flatMap(g => g.l).concat([['hesap', 'Hesabım']]));
@@ -1157,6 +1163,9 @@ function fisDegisti(p) {
   try { S.canli?.yeniFis?.(r); } catch (e) { console.error(e); }
   if (S.rota === 'panel') { panelKirli = true; panelYenile(); }
 }
+function rezervDegisti() {
+  try { S.canli?.rezerv?.(); } catch (e) { console.error(e); }
+}
 function sayimDegisti(p) {
   try { S.canli?.sayimDurum?.(p.new || p.old); } catch (e) { console.error(e); }
 }
@@ -1169,7 +1178,8 @@ function canliBaslat() {
   const pc = (table, fn) => ['postgres_changes', {event: '*', schema: 'public', table}, fn];
   kanal = S.sb.channel('ofs-stok-canli');
   [pc('varyantlar', varyantDegisti), pc('urunler', urunDegisti), pc('fisler', fisDegisti),
-   pc('sayimlar', sayimDegisti), pc('sayim_satirlari', sayimSatirDegisti)].forEach(a => kanal.on(...a));
+   pc('sayimlar', sayimDegisti), pc('sayim_satirlari', sayimSatirDegisti),
+   pc('rezervler', rezervDegisti), pc('rezerv_satirlari', rezervDegisti)].forEach(a => kanal.on(...a));
   if (fy()) kanal.on(...pc('varyant_fiyat', fiyatDegisti));
   kanal.subscribe(st => {
     if (st === 'SUBSCRIBED') {
@@ -1247,7 +1257,7 @@ function swKaydet() {
 }
 
 /* ---------- Varyant seçici ---------- */
-function secici(kap, {onSec, deger = null, stokGoster = true, sadeceAktif = true, placeholder = 'Model, SKU, renk ara…'} = {}) {
+function secici(kap, {onSec, deger = null, stokGoster = true, satilabilirGoster = false, sadeceAktif = true, placeholder = 'Model, SKU, renk ara…'} = {}) {
   kap.classList.add('pick');
   kap.innerHTML = `<input class="inp" placeholder="${esc(placeholder)}" autocomplete="off"><div class="dd hidden"></div>`;
   const inp = $('input', kap), dd = $('.dd', kap);
@@ -1266,7 +1276,7 @@ function secici(kap, {onSec, deger = null, stokGoster = true, sadeceAktif = true
     aktifI = 0;
     dd.innerHTML = liste.length ? liste.map((v, i) => {
       const u = S.umap[v.urun_id] || {};
-      return `<div class="it ${i === 0 ? 'on' : ''}" data-i="${i}"><div class="t"><div><b>${esc(u.model_kodu)}</b> · ${esc(u.model_adi)}</div><div class="sub">${esc(vAd(v))} · ${esc(v.sku)}</div></div>${stokGoster ? `<span class="tag ${v.miktar > 0 ? 'g' : 'r'} num">${fAdet(v.miktar)}</span>` : ''}</div>`;
+      return `<div class="it ${i === 0 ? 'on' : ''}" data-i="${i}"><div class="t"><div><b>${esc(u.model_kodu)}</b> · ${esc(u.model_adi)}</div><div class="sub">${esc(vAd(v))} · ${esc(v.sku)}</div></div>${satilabilirGoster ? `<span class="tag ${satilabilir(v) > 0 ? 'g' : 'r'} num" title="Satılabilir (stok − rezerve)">${fAdet(satilabilir(v))}${rezerveOf(v) ? ` <small style="opacity:.7">/ ${fAdet(v.miktar)}</small>` : ''}</span>` : stokGoster ? `<span class="tag ${v.miktar > 0 ? 'g' : 'r'} num">${fAdet(v.miktar)}</span>` : ''}</div>`;
     }).join('') : '<div class="it muted">Sonuç yok</div>';
     dd.classList.remove('hidden');
   };
@@ -1329,39 +1339,411 @@ function yazdir(baslik, icerik, yatay = false) {
   setTimeout(() => { fr.contentWindow.focus(); fr.contentWindow.print(); setTimeout(() => fr.remove(), 2000); }, 300);
 }
 
-let xlsxSoz = null;
-function xlsxYukle() {
-  if (window.XLSX) return Promise.resolve(true);
-  if (xlsxSoz) return xlsxSoz;
-  const yukle = (src, cdn) => new Promise(res => {
-    const s = document.createElement('script');
-    s.src = src; if (cdn) s.crossOrigin = 'anonymous';
-    s.onload = () => res(!!window.XLSX); s.onerror = () => res(false);
-    document.head.appendChild(s);
-  });
-  xlsxSoz = yukle('xlsx.full.min.js').then(ok => {
-    if (ok) return true;
-    window.__ofs_cdn_x = 1;
-    return yukle('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', true);
-  }).then(ok => { if (!ok) xlsxSoz = null; return ok; });
-  return xlsxSoz;
-}
-async function excelIndir(dosya, sayfa, satirlar) {
-  await xlsxYukle();
-  if (window.XLSX && XLSX.utils?.aoa_to_sheet) {
-    const ws = XLSX.utils.aoa_to_sheet(satirlar.map(r => r.map(c => typeof c === 'string' && /^[=+\-@\t\r]/.test(c) ? "'" + c : c)));
-    ws['!cols'] = satirlar[0].map((_, i) => ({wch: Math.min(48, Math.max(10, ...satirlar.slice(0, 200).map(r => String(r[i] ?? '').length + 2)))}));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, sayfa.slice(0, 31));
-    XLSX.writeFile(wb, dosya + '.xlsx');
-  } else {
-    const csv = satirlar.map(r => r.map(c => { let s = String(c ?? ''); if (typeof c === 'string' && /^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(';')).join('\r\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob(['﻿' + csv], {type: 'text/csv;charset=utf-8'}));
-    a.download = dosya + '.csv'; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    toast('Excel kütüphanesi yüklenemedi; CSV olarak indirildi.');
+/* ---------- Excel (.xlsx) okuma / yazma — dış kütüphane gerektirmez ---------- */
+const XL = (() => {
+  const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  const enc = new TextEncoder(), dec = new TextDecoder('utf-8');
+  const xmlEsc = v => String(v ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  const sutunHarf = n => { let s = ''; n++; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+  const harfSutun = h => { let n = 0; for (const c of h) n = n * 26 + (c.charCodeAt(0) - 64); return n - 1; };
+
+  async function sikistir(veri) {
+    if (typeof CompressionStream === 'undefined') return null;
+    try {
+      const cs = new CompressionStream('deflate-raw');
+      const out = await new Response(new Blob([veri]).stream().pipeThrough(cs)).arrayBuffer();
+      return new Uint8Array(out);
+    } catch { return null; }
   }
+  async function ac(veri) {
+    const ds = new DecompressionStream('deflate-raw');
+    return new Uint8Array(await new Response(new Blob([veri]).stream().pipeThrough(ds)).arrayBuffer());
+  }
+
+  async function zipYaz(dosyalar) {
+    const parcalar = [], merkez = [];
+    let ofset = 0;
+    const tarih = new Date(), dosTime = (tarih.getHours() << 11) | (tarih.getMinutes() << 5) | (tarih.getSeconds() >> 1),
+      dosDate = ((tarih.getFullYear() - 1980) << 9) | ((tarih.getMonth() + 1) << 5) | tarih.getDate();
+    for (const [ad, icerik] of dosyalar) {
+      const isim = enc.encode(ad), ham = typeof icerik === 'string' ? enc.encode(icerik) : icerik;
+      const crc = crc32(ham), sk = await sikistir(ham);
+      const yontem = sk && sk.length < ham.length ? 8 : 0, veri = yontem ? sk : ham;
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, yontem, true);
+      lh.setUint16(10, dosTime, true); lh.setUint16(12, dosDate, true); lh.setUint32(14, crc, true);
+      lh.setUint32(18, veri.length, true); lh.setUint32(22, ham.length, true); lh.setUint16(26, isim.length, true); lh.setUint16(28, 0, true);
+      parcalar.push(new Uint8Array(lh.buffer), isim, veri);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, yontem, true);
+      ch.setUint16(12, dosTime, true); ch.setUint16(14, dosDate, true); ch.setUint32(16, crc, true);
+      ch.setUint32(20, veri.length, true); ch.setUint32(24, ham.length, true); ch.setUint16(28, isim.length, true);
+      ch.setUint32(42, ofset, true);
+      merkez.push(new Uint8Array(ch.buffer), isim);
+      ofset += 30 + isim.length + veri.length;
+    }
+    const mBoy = merkez.reduce((a, b) => a + b.length, 0);
+    const son = new DataView(new ArrayBuffer(22));
+    son.setUint32(0, 0x06054b50, true); son.setUint16(8, dosyalar.length, true); son.setUint16(10, dosyalar.length, true);
+    son.setUint32(12, mBoy, true); son.setUint32(16, ofset, true);
+    return new Blob([...parcalar, ...merkez, new Uint8Array(son.buffer)], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  }
+
+  // sayfalar: [{ad, satirlar: [[...], ...]}] — ilk satır başlık (kalın)
+  async function yaz(sayfalar) {
+    const adlar = new Set();
+    const temizAd = (a, i) => {
+      let x = String(a || `Sayfa${i + 1}`).replace(/[\\/?*\[\]:]/g, ' ').trim().slice(0, 31) || `Sayfa${i + 1}`;
+      let y = x, n = 2; while (adlar.has(y.toLowerCase())) y = x.slice(0, 28) + ' ' + n++;
+      adlar.add(y.toLowerCase()); return y;
+    };
+    const ss = sayfalar.map((s, i) => ({...s, ad: temizAd(s.ad, i)}));
+    const dosyalar = [
+      ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${ss.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`],
+      ['_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+      ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${ss.map((s, i) => `<sheet name="${xmlEsc(s.ad)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`],
+      ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${ss.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${ss.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+      ['xl/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF4F4F5"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`]
+    ];
+    ss.forEach((s, i) => {
+      const rows = s.satirlar || [];
+      const gen = (rows[0] || []).map((_, c) => Math.min(60, Math.max(8, ...rows.slice(0, 300).map(r => String(r[c] ?? '').length + 2))));
+      const xml = rows.map((r, ri) => `<row r="${ri + 1}">${r.map((v, ci) => {
+        if (v === null || v === undefined || v === '') return '';
+        const ref = sutunHarf(ci) + (ri + 1), st = ri === 0 ? ' s="1"' : '';
+        if (typeof v === 'number' && isFinite(v)) return `<c r="${ref}"${st}><v>${v}</v></c>`;
+        if (typeof v === 'boolean') return `<c r="${ref}"${st} t="b"><v>${v ? 1 : 0}</v></c>`;
+        return `<c r="${ref}"${st} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(v)}</t></is></c>`;
+      }).join('')}</row>`).join('');
+      dosyalar.push([`xl/worksheets/sheet${i + 1}.xml`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${rows.length > 1 ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' : ''}${gen.length ? `<cols>${gen.map((w, c) => `<col min="${c + 1}" max="${c + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>` : ''}<sheetData>${xml}</sheetData></worksheet>`]);
+    });
+    return zipYaz(dosyalar);
+  }
+
+  async function zipOku(buf) {
+    const u = new Uint8Array(buf), dv = new DataView(buf);
+    let e = -1;
+    for (let i = u.length - 22; i >= Math.max(0, u.length - 66000); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    if (e < 0) throw new Error('Dosya okunamadı. Excel (.xlsx) dosyası olduğundan emin olun.');
+    const adet = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true);
+    const girdiler = {};
+    for (let k = 0; k < adet; k++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      const yontem = dv.getUint16(p + 10, true), boy = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true),
+        el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), lo = dv.getUint32(p + 42, true);
+      const ad = dec.decode(u.subarray(p + 46, p + 46 + nl));
+      girdiler[ad] = {yontem, boy, lo};
+      p += 46 + nl + el + cl;
+    }
+    return {
+      var: ad => !!girdiler[ad],
+      async metin(ad) {
+        const g = girdiler[ad]; if (!g) return null;
+        const nl = dv.getUint16(g.lo + 26, true), el = dv.getUint16(g.lo + 28, true), bas = g.lo + 30 + nl + el;
+        const veri = u.subarray(bas, bas + g.boy);
+        if (g.yontem === 0) return dec.decode(veri);
+        if (g.yontem === 8) return dec.decode(await ac(veri));
+        throw new Error('Desteklenmeyen sıkıştırma türü.');
+      }
+    };
+  }
+
+  const xmlAc = t => new DOMParser().parseFromString(t, 'application/xml');
+  const etiket = (d, ad) => [...d.getElementsByTagNameNS('*', ad)];
+
+  // İlk sayfayı satır dizisi olarak okur (.xlsx veya .csv)
+  async function oku(dosya) {
+    const ad = (dosya.name || '').toLowerCase();
+    if (ad.endsWith('.csv') || dosya.type === 'text/csv') return csvOku(await dosya.text());
+    if (ad.endsWith('.xls')) throw new Error('Eski .xls biçimi desteklenmiyor. Dosyayı Excel\'de "Excel Çalışma Kitabı (.xlsx)" olarak kaydedip tekrar deneyin.');
+    const z = await zipOku(await dosya.arrayBuffer());
+    const wb = xmlAc(await z.metin('xl/workbook.xml') || '');
+    const ilk = etiket(wb, 'sheet')[0];
+    if (!ilk) throw new Error('Excel dosyasında sayfa bulunamadı.');
+    const rid = ilk.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || ilk.getAttribute('r:id');
+    let yol = 'xl/worksheets/sheet1.xml';
+    const rels = await z.metin('xl/_rels/workbook.xml.rels');
+    if (rels && rid) {
+      const rel = etiket(xmlAc(rels), 'Relationship').find(r => r.getAttribute('Id') === rid);
+      if (rel) { const t = rel.getAttribute('Target'); yol = t.startsWith('/') ? t.slice(1) : 'xl/' + t.replace(/^\.\//, ''); }
+    }
+    const paylasilan = [];
+    const sst = await z.metin('xl/sharedStrings.xml');
+    if (sst) etiket(xmlAc(sst), 'si').forEach(si => paylasilan.push(etiket(si, 't').map(t => t.textContent).join('')));
+    const sx = await z.metin(yol);
+    if (!sx) throw new Error('Excel sayfası okunamadı.');
+    const satirlar = [];
+    etiket(xmlAc(sx), 'row').forEach((row, ri) => {
+      const rn = (+row.getAttribute('r') || ri + 1) - 1, dizi = [];
+      etiket(row, 'c').forEach((c, ci) => {
+        const ref = c.getAttribute('r'), col = ref ? harfSutun(ref.replace(/\d+/g, '')) : ci, t = c.getAttribute('t');
+        const v = etiket(c, 'v')[0]?.textContent;
+        let deger;
+        if (t === 's') deger = paylasilan[+v] ?? '';
+        else if (t === 'inlineStr') deger = etiket(c, 't').map(x => x.textContent).join('');
+        else if (t === 'b') deger = v === '1';
+        else if (t === 'str' || t === 'e') deger = v ?? '';
+        else deger = v === undefined ? '' : (isNaN(+v) ? v : +v);
+        dizi[col] = deger;
+      });
+      satirlar[rn] = dizi;
+    });
+    return Array.from(satirlar, r => Array.from(r || [], x => x ?? ''));
+  }
+
+  function csvOku(t) {
+    t = t.replace(/^﻿/, '');
+    const ilkSatir = t.split(/\r?\n/)[0] || '';
+    const ayr = (ilkSatir.match(/;/g) || []).length > (ilkSatir.match(/,/g) || []).length ? ';' : ',';
+    const out = []; let r = [], f = '', q = false;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (q) { if (c === '"') { if (t[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+      else if (c === '"') q = true;
+      else if (c === ayr) { r.push(f); f = ''; }
+      else if (c === '\n' || c === '\r') { if (c === '\r' && t[i + 1] === '\n') i++; r.push(f); out.push(r); r = []; f = ''; }
+      else f += c;
+    }
+    if (f !== '' || r.length) { r.push(f); out.push(r); }
+    return out.map(r => r.map(x => { const s = x.replace(/^'(?=[=+\-@])/, ''); return s !== '' && /^-?\d+([.,]\d+)?$/.test(s) ? +s.replace(',', '.') : s; }));
+  }
+
+  return {yaz, oku};
+})();
+
+const formulKoru = c => typeof c === 'string' && /^[=+\-@\t\r]/.test(c) ? "'" + c : c;
+async function excelIndir(dosya, sayfa, satirlar) {
+  try {
+    const blob = await XL.yaz([{ad: sayfa, satirlar: satirlar.map(r => r.map(formulKoru))}]);
+    dosyaIndir(blob, dosya + '.xlsx');
+  } catch (e) {
+    console.error(e);
+    toast('Excel dosyası oluşturulamadı.', 'err');
+  }
+}
+function dosyaIndir(blob, ad) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = ad;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+/* ---------- Excel'den toplu ürün yükleme ---------- */
+const TOPLU_BASLIK = ['Model Kodu*', 'Model Adı*', 'Kategori', 'Açıklama', 'Renk', 'Kumaş', 'Ebat', 'SKU', 'Açılış Stoğu'];
+const asciiBuyuk = x => String(x || '').toLocaleUpperCase('tr-TR').replace(/[ÇĞİÖŞÜ]/g, c => ({Ç: 'C', Ğ: 'G', İ: 'I', Ö: 'O', Ş: 'S', Ü: 'U'}[c]));
+const basNorm = h => asciiBuyuk(h).replace(/[^A-Z0-9]/g, '');
+const BASLIK_ESLE = {
+  MODELKODU: 'model_kodu', KOD: 'model_kodu', URUNKODU: 'model_kodu',
+  MODELADI: 'model_adi', MODEL: 'model_adi', URUNADI: 'model_adi', AD: 'model_adi',
+  KATEGORI: 'kategori', ACIKLAMA: 'aciklama', RENK: 'renk', KUMAS: 'kumas', EBAT: 'ebat', OLCU: 'ebat',
+  SKU: 'sku', STOKKODU: 'sku',
+  ACILISSTOGU: 'stok', STOK: 'stok', MIKTAR: 'stok', ADET: 'stok', MEVCUT: 'stok'
+};
+
+async function topluSablonIndir() {
+  const blob = await XL.yaz([
+    {ad: 'Ürünler', satirlar: [TOPLU_BASLIK,
+      ['PHANTOM.YK', 'PHANTOM YÖNETİCİ KOLTUĞU', 'Koltuk', '', 'Siyah', 'Deri', '', '', 12],
+      ['PHANTOM.YK', 'PHANTOM YÖNETİCİ KOLTUĞU', 'Koltuk', '', 'Kahve', 'Deri', '', '', 4],
+      ['ARYA', 'ARYA BERJER', 'Berjer', '', '', '', '', '', 7]]},
+    {ad: 'Nasıl doldurulur', satirlar: [['Sütun', 'Açıklama'],
+      ['Model Kodu*', 'Zorunlu. Aynı modelin her varyantı için aynı kodu yazın.'],
+      ['Model Adı*', 'Zorunlu.'],
+      ['Kategori', 'İsteğe bağlı. Örn. Koltuk, Kanepe, Berjer.'],
+      ['Açıklama', 'İsteğe bağlı.'],
+      ['Renk / Kumaş / Ebat', 'Varyantı ayırır. Hepsi boşsa ürün "Standart" tek varyant olur.'],
+      ['SKU', 'Boş bırakabilirsiniz; program otomatik oluşturur. Mevcut bir SKU yazarsanız o varyant güncellenir.'],
+      ['Açılış Stoğu', 'İsteğe bağlı tam sayı. "Açılış stoğunu işle" seçiliyse bu miktar tek bir giriş fişiyle stoğa eklenir.'],
+      ['', ''],
+      ['Not', 'Zaten kayıtlı ürünler tekrar oluşturulmaz; adı ve kategorisi güncellenir. Açılış stoğu ise HER yüklemede eklenir; aynı dosyayı iki kez yüklerken açılış stoğu seçeneğini kapatın.']]}
+  ]);
+  dosyaIndir(blob, 'ofischi-urun-yukleme-sablonu.xlsx');
+}
+
+function topluSatirlariHazirla(ham) {
+  const satirlar = ham.filter(r => r && r.some(x => String(x ?? '').trim() !== ''));
+  if (!satirlar.length) throw new Error('Dosya boş.');
+  const baslik = satirlar[0].map(h => BASLIK_ESLE[basNorm(h)] || null);
+  if (!baslik.includes('model_kodu') || !baslik.includes('model_adi'))
+    throw new Error('İlk satırda "Model Kodu" ve "Model Adı" başlıkları bulunamadı. Şablonu indirip onunla doldurun.');
+  const mevcutSku = new Map(S.varyantlar.map(v => [trLower(v.sku), v]));
+  const urunKod = new Map(S.urunler.map(u => [u.model_kodu, u]));
+  const dosyaSku = new Map(), dosyaKombi = new Map(), dosyaAd = new Map();
+  const kisalt = x => asciiBuyuk(String(x).trim()).replace(/[^A-Z0-9]+/g, '').slice(0, 4);
+  const sonuc = [];
+  satirlar.slice(1).forEach((r, i) => {
+    const o = {no: i + 2, hatalar: []};
+    baslik.forEach((k, c) => { if (k && o[k] === undefined) o[k] = String(r[c] ?? '').trim(); });
+    ['model_kodu', 'model_adi', 'kategori', 'aciklama', 'renk', 'kumas', 'ebat', 'sku', 'stok'].forEach(k => { if (o[k] === undefined) o[k] = ''; });
+    if (!o.model_kodu) o.hatalar.push('Model kodu boş');
+    if (!o.model_adi) o.hatalar.push('Model adı boş');
+    if (o.model_kodu.length > 60) o.hatalar.push('Model kodu en fazla 60 karakter');
+    if (o.model_adi.length > 160) o.hatalar.push('Model adı en fazla 160 karakter');
+    if (o.kategori.length > 80) o.hatalar.push('Kategori en fazla 80 karakter');
+    ['renk', 'kumas', 'ebat'].forEach(k => { if (o[k].length > 80) o.hatalar.push(`${k} en fazla 80 karakter`); });
+    if (o.aciklama.length > 1000) o.hatalar.push('Açıklama en fazla 1000 karakter');
+    if (o.stok !== '') {
+      const n = Number(String(o.stok).replace(',', '.'));
+      if (!Number.isInteger(n) || n < 0 || n > 1000000) o.hatalar.push('Açılış stoğu 0 veya pozitif tam sayı olmalı');
+      else o.stok = n;
+    } else o.stok = 0;
+    if (o.model_kodu && o.model_adi) {
+      const ilkAd = dosyaAd.get(o.model_kodu);
+      if (ilkAd === undefined) dosyaAd.set(o.model_kodu, o.model_adi); else o.model_adi = ilkAd;
+    }
+    const u = urunKod.get(o.model_kodu);
+    const kombi = `${o.model_kodu}|${trLower(o.renk)}|${trLower(o.kumas)}|${trLower(o.ebat)}`;
+    if (!o.sku) {
+      const ayni = u && S.varyantlar.find(v => v.urun_id === u.id && trLower(v.renk) === trLower(o.renk) && trLower(v.kumas) === trLower(o.kumas) && trLower(v.ebat) === trLower(o.ebat));
+      if (ayni) o.sku = ayni.sku;
+      else if (o.model_kodu) {
+        const parca = [o.renk, o.kumas, o.ebat].map(kisalt).filter(Boolean).join('-');
+        const temel = asciiBuyuk(o.model_kodu).replace(/\s+/g, '-') + (parca ? '-' + parca : '');
+        let aday = temel, n = 2;
+        while (mevcutSku.has(trLower(aday)) || dosyaSku.has(trLower(aday))) aday = `${temel}-${n++}`;
+        o.sku = aday;
+      }
+    }
+    if (o.sku.length > 80) o.hatalar.push('SKU en fazla 80 karakter');
+    if (o.model_kodu) {
+      if (dosyaKombi.has(kombi)) o.hatalar.push(`Aynı model ve varyant ${dosyaKombi.get(kombi)}. satırda da var`);
+      else dosyaKombi.set(kombi, o.no);
+    }
+    if (o.sku) {
+      const k = trLower(o.sku);
+      if (dosyaSku.has(k)) o.hatalar.push(`SKU ${dosyaSku.get(k)}. satırda da kullanılmış`);
+      else dosyaSku.set(k, o.no);
+      const mv = mevcutSku.get(k);
+      if (mv && S.umap[mv.urun_id]?.model_kodu !== o.model_kodu) o.hatalar.push(`Bu SKU başka bir modele ait (${S.umap[mv.urun_id]?.model_kodu})`);
+      o.durum = mv ? 'mevcut' : (u ? 'yeni_varyant' : 'yeni_urun');
+    }
+    sonuc.push(o);
+  });
+  if (!sonuc.length) throw new Error('Başlık satırından sonra veri yok.');
+  if (sonuc.length > 3000) throw new Error('Tek seferde en fazla 3000 satır yüklenebilir. Dosyayı bölün.');
+  return sonuc;
+}
+
+function topluYukleAc() {
+  const m = modal({
+    baslik: 'Excel\'den toplu ürün yükleme', genis: true,
+    govde: `<div class="stack" id="ty">
+      <ol style="padding-left:20px;display:grid;gap:6px;color:hsl(var(--muted-foreground))">
+        <li><b style="color:hsl(var(--foreground))">Şablonu indirin</b> ve ürünlerinizi doldurun. Mevcut bir Excel listeniz varsa başlıkları şablondakiyle aynı yapın.</li>
+        <li>Dosyayı seçin. Program her satırı kontrol eder ve <b style="color:hsl(var(--foreground))">kaydetmeden önce</b> önizleme gösterir.</li>
+        <li>Hata yoksa <b style="color:hsl(var(--foreground))">Yükle</b>'ye basın. Tek bir hata bile varsa hiçbir şey kaydedilmez.</li>
+      </ol>
+      <div class="row"><button type="button" class="btn" id="ty-sablon">${ic('excel')} Şablonu indir</button>
+        <label class="btn gold" style="cursor:pointer">${ic('yukle')} Dosya seç (.xlsx / .csv)<input type="file" id="ty-dosya" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden></label>
+        <span class="sub" id="ty-ad"></span></div>
+      <label class="chk"><input type="checkbox" id="ty-acilis" checked> Açılış stoğunu işle (dosyadaki "Açılış Stoğu" miktarları tek bir giriş fişiyle stoğa eklenir)</label>
+      <div id="ty-onizle"></div>
+    </div>`,
+    alt: `<button class="btn" data-kapat>Vazgeç</button><button class="btn gold" id="ty-yukle" disabled>Yükle</button>`
+  });
+  let satirlar = null;
+  $('#ty-sablon', m).onclick = e => mesgul(e.currentTarget, topluSablonIndir);
+  $('#ty-dosya', m).onchange = async ev => {
+    const f = ev.target.files[0]; ev.target.value = '';
+    if (!f) return;
+    $('#ty-ad', m).textContent = f.name;
+    $('#ty-onizle', m).innerHTML = '<div class="spin"></div>';
+    $('#ty-yukle', m).disabled = true; satirlar = null;
+    try {
+      if (f.size > 10 * 1024 * 1024) throw new Error('Dosya 10 MB\'dan büyük olamaz.');
+      satirlar = topluSatirlariHazirla(await XL.oku(f));
+    } catch (e) {
+      $('#ty-onizle', m).innerHTML = `<div class="warn">${ic('uyari')}<span>${esc(e.message || 'Dosya okunamadı.')}</span></div>`;
+      return;
+    }
+    const hatali = satirlar.filter(s => s.hatalar.length);
+    const sayi = k => satirlar.filter(s => !s.hatalar.length && s.durum === k).length;
+    const yeniUrun = new Set(satirlar.filter(s => !s.hatalar.length && s.durum === 'yeni_urun').map(s => s.model_kodu)).size;
+    const stokTop = satirlar.reduce((a, s) => a + (s.hatalar.length ? 0 : (+s.stok || 0)), 0);
+    const goster = [...hatali, ...satirlar.filter(s => !s.hatalar.length)].slice(0, 300);
+    const DURUM = {yeni_urun: '<span class="tag g">Yeni ürün</span>', yeni_varyant: '<span class="tag b">Yeni varyant</span>', mevcut: '<span class="tag">Kayıtlı · güncellenir</span>'};
+    $('#ty-onizle', m).innerHTML = `
+      ${hatali.length ? `<div class="warn" style="border-color:hsl(var(--destructive)/.5);background:hsl(var(--destructive)/.06)">${ic('uyari')}<span><b>${fAdet(hatali.length)} satırda hata var.</b> Excel'de düzeltip dosyayı tekrar seçin. Hata varken hiçbir satır kaydedilmez.</span></div>`
+        : `<div class="warn" style="border-color:hsl(var(--success)/.5);background:hsl(var(--success)/.07)">${ic('uyari')}<span><b>Dosya hazır.</b> ${fAdet(yeniUrun)} yeni ürün, ${fAdet(sayi('yeni_urun') + sayi('yeni_varyant'))} yeni varyant, ${fAdet(sayi('mevcut'))} kayıtlı varyant${$('#ty-acilis', m).checked && stokTop ? ` · toplam ${fAdet(stokTop)} adet açılış stoğu` : ''}.</span></div>`}
+      <div class="glass tw" style="margin-top:12px;max-height:46vh;overflow:auto"><table class="rt"><thead><tr><th>Satır</th><th>Model</th><th>Varyant</th><th>SKU</th><th class="r">Açılış</th><th>Durum</th></tr></thead><tbody>
+      ${goster.map(s => `<tr><td class="hd num" data-l="Satır">${s.no}. satır</td><td data-l="Model"><b>${esc(s.model_kodu || '—')}</b> · ${esc(s.model_adi || '—')}${s.kategori ? `<div class="sub">${esc(s.kategori)}</div>` : ''}</td>
+        <td data-l="Varyant">${esc([s.renk, s.kumas, s.ebat].filter(Boolean).join(' / ') || 'Standart')}</td><td data-l="SKU" class="mono">${esc(s.sku || '—')}</td><td class="r num" data-l="Açılış">${fAdet(+s.stok || 0)}</td>
+        <td data-l="Durum">${s.hatalar.length ? `<span class="red-t">${s.hatalar.map(esc).join(' · ')}</span>` : DURUM[s.durum]}</td></tr>`).join('')}
+      </tbody></table></div>${satirlar.length > 300 ? `<p class="sub" style="margin-top:6px">İlk 300 satır gösteriliyor (önce hatalılar). Toplam ${fAdet(satirlar.length)} satır.</p>` : ''}`;
+    $('#ty-yukle', m).disabled = !!hatali.length;
+  };
+  $('#ty-yukle', m).onclick = e => {
+    if (!satirlar || satirlar.some(s => s.hatalar.length)) return;
+    const acilis = $('#ty-acilis', m).checked;
+    mesgul(e.currentTarget, async () => {
+      const p = {acilis, satirlar: satirlar.map(s => ({model_kodu: s.model_kodu, model_adi: s.model_adi, kategori: s.kategori, aciklama: s.aciklama, renk: s.renk, kumas: s.kumas, ebat: s.ebat, sku: s.sku, stok: String(s.stok || 0)}))};
+      const {data, error} = await S.sb.rpc('toplu_urun_yukle', {p});
+      if (error) return toast(hataMesaji(error), 'err');
+      await katalogYukle();
+      m.kapat();
+      toast(`Yüklendi: ${fAdet(data.yeni_urun)} yeni ürün, ${fAdet(data.yeni_varyant)} yeni varyant, ${fAdet(data.mevcut_varyant)} güncellenen.${data.fis_no ? ` Açılış fişi: ${data.fis_no}` : ''}`);
+      rotala();
+    });
+  };
+}
+
+/* ---------- Tam yedek ---------- */
+async function tamYedekAl(btn, durumEl) {
+  const durum = t => { if (durumEl) durumEl.textContent = t; };
+  const hepsi = async (tablo, secim = '*', sira = ['id']) => {
+    const out = [];
+    for (let i = 0; ; i += 1000) {
+      durum(`${tablo}: ${fAdet(out.length)} kayıt alındı…`);
+      let q = S.sb.from(tablo).select(secim);
+      [].concat(sira).forEach(k => { q = q.order(k); });
+      const {data, error} = await q.range(i, i + 999);
+      if (error) throw error;
+      out.push(...data);
+      if (data.length < 1000) break;
+    }
+    return out;
+  };
+  return mesgul(btn, async () => {
+    try {
+      const [urunler, varyantlar, fisler, hareketler, sayimlar, ssat, rezervler, rsat, kullanicilar] = await Promise.all([
+        hepsi('urunler'), hepsi('varyantlar'), hepsi('fisler'), hepsi('hareketler'), hepsi('sayimlar'),
+        hepsi('sayim_satirlari', '*', ['sayim_id', 'varyant_id']), hepsi('rezervler'), hepsi('rezerv_satirlari', '*', ['rezerv_id', 'varyant_id']),
+        hepsi('profiles', 'id,ad_soyad,email,rol,aktif,created_at', ['created_at', 'id'])
+      ]);
+      durum('Dosya hazırlanıyor…');
+      const um = Object.fromEntries(urunler.map(u => [u.id, u])), vm = Object.fromEntries(varyantlar.map(v => [v.id, v])), fm = Object.fromEntries(fisler.map(f => [f.id, f]));
+      const rm = Object.fromEntries(rezervler.map(r => [r.id, r]));
+      const evet = b => b ? 'Evet' : 'Hayır';
+      const sayfalar = [
+        {ad: 'Ürünler', satirlar: [[...TOPLU_BASLIK, 'Stok', 'Rezerve', 'Aktif'],
+          ...varyantlar.map(v => { const u = um[v.urun_id] || {}; return [u.model_kodu, u.model_adi, u.kategori, u.aciklama, v.renk, v.kumas, v.ebat, v.sku, '', v.miktar, v.rezerve || 0, evet(v.aktif && u.aktif !== false)]; })]},
+        {ad: 'Fişler', satirlar: [['Fiş No', 'Tarih', 'Tür', 'Neden', 'Müşteri', 'Sipariş No', 'İrsaliye No', 'Açıklama', 'İşlemi Yapan', 'İptal Edildi', 'Rezerv'],
+          ...fisler.map(f => [f.fis_no, fTarih(f.created_at), TIP[f.tip], f.neden, f.musteri, f.siparis_no, f.irsaliye_no, f.aciklama, f.kullanici_adi, evet(f.iptal_edildi), rm[f.rezerv_id]?.rez_no || ''])]},
+        {ad: 'Hareketler', satirlar: [['Tarih', 'Fiş No', 'Model Kodu', 'SKU', 'Miktar (+giriş / −çıkış)', 'Sonraki Stok'],
+          ...hareketler.map(h => { const v = vm[h.varyant_id] || {}; return [fTarih(h.created_at), fm[h.fis_id]?.fis_no || '', um[v.urun_id]?.model_kodu || '', v.sku || '', h.yon * h.miktar, h.kalan_sonra]; })]},
+        {ad: 'Sayımlar', satirlar: [['Sayım No', 'Açıklama', 'Durum', 'Başlatan', 'Başlangıç', 'Tamamlanma', 'Tamamlayan'],
+          ...sayimlar.map(s => [s.id, s.aciklama, {acik: 'Açık', tamamlandi: 'Tamamlandı', iptal: 'İptal'}[s.durum], s.olusturan_adi, fTarih(s.created_at), fTarih(s.tamamlandi_at), s.tamamlayan_adi || ''])]},
+        {ad: 'Sayım Satırları', satirlar: [['Sayım No', 'SKU', 'Sayılan', 'Giren', 'Güncelleme'],
+          ...ssat.map(s => [s.sayim_id, vm[s.varyant_id]?.sku || '', s.fiili, s.guncelleyen_adi || '', fTarih(s.updated_at)])]},
+        {ad: 'Rezervler', satirlar: [['Rezerv No', 'Müşteri', 'Sipariş No', 'Açıklama', 'Durum', 'Açan', 'Tarih', 'Kapanış', 'İptal Nedeni'],
+          ...rezervler.map(r => [r.rez_no, r.musteri, r.siparis_no, r.aciklama, {acik: 'Açık', teslim: 'Teslim edildi', iptal: 'İptal'}[r.durum], r.olusturan_adi, fTarih(r.created_at), fTarih(r.kapanis_at), r.iptal_nedeni || ''])]},
+        {ad: 'Rezerv Satırları', satirlar: [['Rezerv No', 'SKU', 'Rezerve', 'Teslim Edilen', 'Kalan'],
+          ...rsat.map(s => [rm[s.rezerv_id]?.rez_no || '', vm[s.varyant_id]?.sku || '', s.miktar, s.teslim, s.miktar - s.teslim])]},
+        {ad: 'Kullanıcılar', satirlar: [['Ad Soyad', 'E-posta', 'Rol', 'Aktif', 'Kayıt'],
+          ...kullanicilar.map(k => [k.ad_soyad, k.email, k.rol === 'yonetici' ? 'Yönetici' : 'Depocu', evet(k.aktif), fTarih(k.created_at)])]}
+      ].map(s => ({...s, satirlar: s.satirlar.map(r => r.map(formulKoru))}));
+      const blob = await XL.yaz(sayfalar);
+      dosyaIndir(blob, `ofischi-stok-yedek-${isoGun(new Date())}.xlsx`);
+      await S.sb.from('ayarlar').update({son_yedek: new Date().toISOString()}).eq('id', 1);
+      await ayarYukle();
+      durum(`Son yedek: ${fTarih(S.ay?.son_yedek)} · ${fAdet(varyantlar.length)} ürün, ${fAdet(fisler.length)} fiş, ${fAdet(hareketler.length)} hareket.`);
+      toast('Yedek indirildi. Dosyayı güvenli bir yerde (bilgisayar + bulut) saklayın.');
+    } catch (e) {
+      durum('');
+      toast(hataMesaji(e), 'err');
+    }
+  });
 }
 
 /* =====================================================================
@@ -1457,7 +1839,7 @@ function statKart(baslik, deger, ipucu, ikon, cls = '') {
 
 VIEWS.panel = async el => {
   const vs = S.varyantlar.filter(v => v.aktif && S.umap[v.urun_id]?.aktif !== false);
-  const toplam = vs.reduce((a, v) => a + v.miktar, 0);
+  const toplam = vs.reduce((a, v) => a + v.miktar, 0), rzToplam = vs.reduce((a, v) => a + rezerveOf(v), 0);
   const stoksuz = vs.filter(v => v.miktar <= 0).length;
   const modelSay = new Set(vs.map(v => v.urun_id)).size;
   const bugun = new Date(); bugun.setHours(0, 0, 0, 0);
@@ -1518,6 +1900,11 @@ VIEWS.panel = async el => {
     dorduncu = statKart('Açık sayım', fAdet(acikSayim || 0), acikSayim ? 'Devam eden sayım var' : 'Devam eden sayım yok', 'sayim');
   }
 
+  if (yon() && S.ay && 'son_yedek' in S.ay) {
+    const gun = S.ay.son_yedek ? Math.floor((Date.now() - new Date(S.ay.son_yedek)) / 864e5) : null;
+    if (gun === null || gun >= 7) uyari += `<div class="warn">${ic('uyari')}<span>${gun === null ? 'Henüz hiç yedek alınmadı.' : `Son yedek ${fAdet(gun)} gün önce alındı.`} Supabase ücretsiz planda otomatik yedek yok; haftada bir <a href="#/ayarlar">Ayarlar → Tam yedek al</a> ile Excel yedeği indirin.</span></div>`;
+  }
+
   const kat = {};
   vs.forEach(v => {
     const k = S.umap[v.urun_id]?.kategori || 'Kategorisiz';
@@ -1529,7 +1916,7 @@ VIEWS.panel = async el => {
   $('#ust').innerHTML = `<a class="btn gold" href="#/giris">${ic('giris')} Stok girişi</a><a class="btn" href="#/cikis">${ic('cikis')} Stok çıkışı</a><a class="btn" href="#/sayim">${ic('sayim')} Sayım</a>`;
   el.innerHTML = `${uyari}
   <div class="stats">
-    ${statKart('Toplam stok', `${fAdet(toplam)} <small>adet</small>`, `${fAdet(vs.length)} varyant · ${fAdet(modelSay)} model`, 'stok')}
+    ${statKart('Toplam stok', `${fAdet(toplam)} <small>adet</small>`, rzToplam ? `${fAdet(rzToplam)} rezerve · ${fAdet(toplam - rzToplam)} satılabilir` : `${fAdet(vs.length)} varyant · ${fAdet(modelSay)} model`, 'stok')}
     ${statKart('Bugünkü hareket', `<span class="green-t">+${fAdet(bg)}</span> <small>/</small> <span class="red-t">−${fAdet(bc)}</span>`, 'Giriş / çıkış (adet)', 'hareketler')}
     ${statKart('Stokta olmayan', fAdet(stoksuz), stoksuz ? 'Aktif varyant stokta yok' : 'Tüm aktif varyantlar stokta', 'uyari', stoksuz ? 'red-t' : '')}
     ${dorduncu}
@@ -1658,14 +2045,16 @@ VIEWS.stok = el => {
       const h = trLower(`${u.model_kodu} ${u.model_adi} ${u.kategori} ${v.sku} ${v.renk} ${v.kumas} ${v.ebat}`);
       return q.every(t => h.includes(t));
     });
-    const top = l.reduce((a, v) => a + v.miktar, 0);
-    $('#ozet').textContent = `${fAdet(l.length)} varyant · toplam ${fAdet(top)} adet`;
+    const top = l.reduce((a, v) => a + v.miktar, 0), rzTop = l.reduce((a, v) => a + rezerveOf(v), 0);
+    $('#ozet').textContent = `${fAdet(l.length)} varyant · toplam ${fAdet(top)} adet${rzTop ? ` · ${fAdet(rzTop)} rezerve · ${fAdet(top - rzTop)} satılabilir` : ''}`;
     const goster = l.slice(0, 500);
-    $('#liste').innerHTML = l.length ? `<table class="rt"><thead><tr><th>Model</th><th>Varyant</th><th>SKU</th><th>Kategori</th><th class="r">Miktar</th>${fy() ? '<th class="r">Maliyet</th><th class="r">Satış</th><th class="r">Değer (₺)</th>' : ''}</tr></thead><tbody>
+    $('#liste').innerHTML = l.length ? `<table class="rt"><thead><tr><th>Model</th><th>Varyant</th><th>SKU</th><th>Kategori</th><th class="r">Miktar</th><th class="r">Rezerve</th><th class="r">Satılabilir</th>${fy() ? '<th class="r">Maliyet</th><th class="r">Satış</th><th class="r">Değer (₺)</th>' : ''}</tr></thead><tbody>
       ${goster.map(v => { const u = S.umap[v.urun_id] || {}; const f = S.fiyat[v.id]; return `<tr class="cl" data-v="${v.id}">
         <td class="hd" data-l="Model"><b>${esc(u.model_kodu)}</b> · ${esc(u.model_adi)} ${!v.aktif || u.aktif === false ? '<span class="tag">Pasif</span>' : ''}</td>
         <td data-l="Varyant">${esc(vAd(v))}</td><td data-l="SKU">${esc(v.sku)}</td><td data-l="Kategori">${esc(u.kategori || '—')}</td>
         <td class="r" data-l="Miktar"><span class="tag ${v.miktar > 0 ? 'g' : 'r'} num">${fAdet(v.miktar)}</span></td>
+        <td class="r num" data-l="Rezerve">${rezerveOf(v) ? `<span class="tag y num">${fAdet(rezerveOf(v))}</span>` : '<span class="muted">—</span>'}</td>
+        <td class="r num" data-l="Satılabilir"><b>${fAdet(satilabilir(v))}</b></td>
         ${fy() ? `<td class="r num" data-l="Maliyet">${f ? esc(fPara(f.maliyet, f.maliyet_doviz)) : '—'}</td><td class="r num" data-l="Satış">${f ? esc(fPara(f.satis, f.satis_doviz)) : '—'}</td><td class="r num" data-l="Değer">${f ? esc(fTL(v.miktar * tl(f.maliyet, f.maliyet_doviz))) : '—'}</td>` : ''}
       </tr>`; }).join('')}</tbody></table>${l.length > 500 ? `<div class="empty">İlk 500 kayıt gösteriliyor. Aramayı daraltın.</div>` : ''}`
       : `<div class="empty">${S.varyantlar.length ? 'Kayıt bulunamadı.' : (yon() ? 'Henüz ürün yok. <a href="#/urunler">Ürünler</a> ekranından ekleyin.' : 'Henüz ürün tanımlanmamış.')}</div>`;
@@ -1684,7 +2073,7 @@ async function varyantDetay(id) {
   if (error) return toast(hataMesaji(error), 'err');
   const m = modal({
     baslik: esc(vTam(v)), genis: true,
-    govde: `<div class="row" style="margin-bottom:14px"><span class="tag y">SKU: ${esc(v.sku)}</span><span class="tag ${v.miktar > 0 ? 'g' : 'r'}">Mevcut: ${fAdet(v.miktar)} adet</span></div>
+    govde: `<div class="row" style="margin-bottom:14px"><span class="tag y">SKU: ${esc(v.sku)}</span><span class="tag ${v.miktar > 0 ? 'g' : 'r'}">Mevcut: ${fAdet(v.miktar)} adet</span>${rezerveOf(v) ? `<span class="tag y">Rezerve: ${fAdet(rezerveOf(v))}</span><span class="tag g">Satılabilir: ${fAdet(satilabilir(v))}</span><a class="btn sm" href="#/rezervler" data-kapat>Rezervleri gör</a>` : ''}</div>
     ${data.length ? `<div class="glass tw"><table class="rt"><thead><tr><th>Tarih</th><th>Fiş</th><th>Neden</th><th>Müşteri</th><th class="r">Miktar</th><th class="r">Kalan</th></tr></thead><tbody>
     ${data.map(h => `<tr class="cl" data-fis="${h.fisler?.id}"><td class="hd num" data-l="Tarih">${esc(fTarih(h.created_at))}</td><td data-l="Fiş"><b class="gold-t">${esc(h.fisler?.fis_no)}</b></td><td data-l="Neden">${esc(h.fisler?.neden)}</td><td data-l="Müşteri">${esc(h.fisler?.musteri || '—')}</td>
       <td class="r num ${h.yon > 0 ? 'green-t' : 'red-t'}" data-l="Miktar">${h.yon > 0 ? '+' : '−'}${fAdet(h.miktar)}</td><td class="r num" data-l="Kalan">${fAdet(h.kalan_sonra)}</td></tr>`).join('')}
@@ -1692,6 +2081,183 @@ async function varyantDetay(id) {
     alt: `<a class="btn" href="#/giris?v=${id}" data-kapat>${ic('giris')} Giriş</a><a class="btn" href="#/cikis?v=${id}" data-kapat>${ic('cikis')} Çıkış</a><button class="btn gold" data-kapat>Kapat</button>`
   });
   fisTabloBagla(m);
+}
+
+/* ---------- Rezervler (siparişe ayrılan stok) ---------- */
+const rezerveOf = v => Math.max(0, +(v?.rezerve) || 0);
+const satilabilir = v => Math.max(0, (+(v?.miktar) || 0) - rezerveOf(v));
+const REZ_DURUM = {acik: '<span class="tag y">Açık</span>', teslim: '<span class="tag g">Teslim edildi</span>', iptal: '<span class="tag r">İptal</span>'};
+
+VIEWS.rezervler = async el => {
+  $('#ust').innerHTML = `<button class="btn gold" id="yeni">${ic('arti')} Yeni Rezerv</button>`;
+  el.innerHTML = `
+  <div class="glass filters">
+    <label class="f"><span>Durum</span><select class="inp" id="rd"><option value="acik">Açık</option><option value="teslim">Teslim edildi</option><option value="iptal">İptal</option><option value="">Tümü</option></select></label>
+    <label class="f"><span>Ara</span><input class="inp" id="rq" placeholder="Rezerv no, müşteri, sipariş no…"></label>
+  </div>
+  <div id="rozet" class="sub" style="margin:0 4px"></div>
+  <div class="glass tw" id="liste"><div class="spin"></div></div>`;
+  let veri = [];
+  const yukle = async () => {
+    const {data, error} = await S.sb.from('rezervler').select('*, rezerv_satirlari(varyant_id,miktar,teslim)').order('id', {ascending: false}).limit(1000);
+    if (error) { $('#liste').innerHTML = `<div class="empty">${esc(hataMesaji(error))}</div>`; return; }
+    veri = data; ciz();
+  };
+  const ciz = () => {
+    const d = $('#rd').value, q = trLower($('#rq').value).split(/\s+/).filter(Boolean);
+    const l = veri.filter(r => (!d || r.durum === d) && q.every(t => trLower(`${r.rez_no} ${r.musteri} ${r.siparis_no} ${r.aciklama}`).includes(t)));
+    const acik = veri.filter(r => r.durum === 'acik');
+    const kalanTop = acik.reduce((a, r) => a + (r.rezerv_satirlari || []).reduce((b, s) => b + s.miktar - s.teslim, 0), 0);
+    $('#rozet').textContent = `${fAdet(acik.length)} açık rezerv · ${fAdet(kalanTop)} adet ayrılmış`;
+    $('#liste').innerHTML = l.length ? `<table class="rt"><thead><tr><th>Rezerv</th><th>Müşteri</th><th>Sipariş No</th><th class="r">Kalem</th><th class="r">Adet</th><th class="r">Kalan</th><th>Durum</th><th>Tarih</th><th>Açan</th></tr></thead><tbody>
+      ${l.map(r => { const s = r.rezerv_satirlari || []; const top = s.reduce((a, x) => a + x.miktar, 0), kalan = s.reduce((a, x) => a + x.miktar - x.teslim, 0);
+        return `<tr class="cl" data-rz="${r.id}"><td class="hd" data-l="Rezerv"><b class="gold-t">${esc(r.rez_no)}</b></td><td data-l="Müşteri">${esc(r.musteri)}</td><td data-l="Sipariş No">${esc(r.siparis_no || '—')}</td>
+          <td class="r num" data-l="Kalem">${fAdet(s.length)}</td><td class="r num" data-l="Adet">${fAdet(top)}</td><td class="r num" data-l="Kalan">${r.durum === 'acik' ? fAdet(kalan) : '—'}</td>
+          <td data-l="Durum">${REZ_DURUM[r.durum]}</td><td class="num" data-l="Tarih">${esc(fGun(r.created_at))}</td><td data-l="Açan">${esc(r.olusturan_adi)}</td></tr>`; }).join('')}</tbody></table>`
+      : `<div class="empty">${veri.length ? 'Bu filtrede rezerv yok.' : 'Henüz rezerv yok. Müşteriye söz verilen malı "Yeni Rezerv" ile ayırabilirsiniz.'}</div>`;
+    $$('[data-rz]', el).forEach(tr => tr.onclick = () => rezervDetay(+tr.dataset.rz, yukle));
+  };
+  $('#rd').onchange = ciz;
+  $('#rq').oninput = debounce(ciz, 150);
+  $('#yeni').onclick = () => rezervYeni(yukle);
+  await yukle();
+  S.canli = {rezerv: debounce(() => { if (S.rota === 'rezervler' && document.visibilityState === 'visible') yukle(); }, 600)};
+};
+
+function rezervYeni(sonra) {
+  const m = modal({
+    baslik: 'Yeni Rezerv', genis: true,
+    govde: `<form id="frz" class="stack" autocomplete="off">
+      <div class="grid g3">
+        <label class="f"><span>Müşteri *</span><input class="inp" name="musteri" maxlength="160" required></label>
+        <label class="f"><span>Sipariş No</span><input class="inp" name="siparis_no" maxlength="60"></label>
+        <label class="f"><span>Açıklama</span><input class="inp" name="aciklama" maxlength="600" placeholder="Örn. teslim tarihi"></label>
+      </div>
+      <div><div class="row" style="margin-bottom:10px"><b style="font-weight:600">Ayrılacak ürünler</b><span class="sp"></span><button type="button" class="btn sm" id="rz-ekle">${ic('arti')} Satır Ekle</button></div>
+      <div class="lines" id="rz-lines"></div></div>
+      <p class="sub">Rezerve edilen mal depoda kalır ama başka bir müşteriye satılamaz. Teslim ederken rezervin içinden çıkış fişi kesilir.</p>
+    </form>`,
+    alt: `<button class="btn" data-kapat>Vazgeç</button><button class="btn gold" id="rz-kaydet">Rezervi Kaydet</button>`
+  });
+  const lines = $('#rz-lines', m);
+  const bilgi = ln => {
+    const v = S.vmap[$('.pick', ln).secili], inf = $('.info', ln);
+    if (!v) { inf.textContent = ''; return; }
+    const istenen = parseInt($('[data-m]', ln).value, 10) || 0, sat = satilabilir(v);
+    inf.innerHTML = `Stok: <b>${fAdet(v.miktar)}</b> · Rezerve: <b>${fAdet(rezerveOf(v))}</b> · Satılabilir: <b class="${istenen > sat ? 'red-t' : ''}">${fAdet(sat)}</b>${istenen > sat ? ' — yetersiz' : ''}`;
+  };
+  const ekle = () => {
+    const ln = document.createElement('div');
+    ln.className = 'line';
+    ln.innerHTML = `<div></div><label class="f"><span>Miktar</span><input class="inp num" data-m type="number" inputmode="numeric" min="1" max="1000000" step="1" value="1"></label>
+      <button type="button" class="btn icon red del" aria-label="Satırı sil">${ic('cop')}</button><div class="info"></div>`;
+    lines.appendChild(ln);
+    secici(ln.firstElementChild, {satilabilirGoster: true, onSec: () => bilgi(ln)});
+    $('[data-m]', ln).oninput = () => bilgi(ln);
+    $('.del', ln).onclick = () => { ln.remove(); if (!$('.line', lines)) ekle(); };
+  };
+  ekle();
+  $('#rz-ekle', m).onclick = ekle;
+  $('#rz-kaydet', m).onclick = e => {
+    const fm = $('#frz', m);
+    if (!fm.musteri.value.trim()) { fm.musteri.focus(); return toast('Müşteri adı zorunlu.', 'err'); }
+    const satirlar = [], ihtiyac = {};
+    for (const ln of $$('.line', lines)) {
+      const vid = $('.pick', ln).secili, mk = Number($('[data-m]', ln).value);
+      if (!vid) { $('.pick input', ln).focus(); return toast('Her satırda ürün seçin (boş satırları silin).', 'err'); }
+      if (!Number.isInteger(mk) || mk < 1 || mk > 1000000) { $('[data-m]', ln).focus(); return toast('Miktar 1 veya daha büyük tam sayı olmalı.', 'err'); }
+      satirlar.push({varyant_id: vid, miktar: mk}); ihtiyac[vid] = (ihtiyac[vid] || 0) + mk;
+    }
+    const eksik = Object.entries(ihtiyac).find(([id, mk]) => satilabilir(S.vmap[id]) < mk);
+    if (eksik) return toast(`Yetersiz satılabilir stok: ${S.vmap[eksik[0]].sku} (satılabilir ${fAdet(satilabilir(S.vmap[eksik[0]]))})`, 'err');
+    mesgul(e.currentTarget, async () => {
+      const {data, error} = await S.sb.rpc('rezerv_olustur', {p: {musteri: fm.musteri.value.trim(), siparis_no: fm.siparis_no.value.trim(), aciklama: fm.aciklama.value.trim(), satirlar}});
+      if (error) return toast(hataMesaji(error), 'err');
+      await stokYenile();
+      toast(`Rezerv kaydedildi: ${data}`);
+      m.kapat(); sonra && sonra();
+    });
+  };
+}
+
+async function rezervDetay(id, sonra) {
+  const [{data: r, error}, {data: fisler}] = await Promise.all([
+    S.sb.from('rezervler').select('*, rezerv_satirlari(varyant_id,miktar,teslim)').eq('id', id).single(),
+    S.sb.from('fisler').select('id,fis_no,created_at,iptal_edildi,irsaliye_no').eq('rezerv_id', id).order('id')
+  ]);
+  if (error) return toast(hataMesaji(error), 'err');
+  const satirlar = (r.rezerv_satirlari || []).sort((a, b) => a.varyant_id - b.varyant_id);
+  const acik = r.durum === 'acik';
+  const ust = [['Müşteri', r.musteri], ['Sipariş No', r.siparis_no], ['Açıklama', r.aciklama], ['Açan', `${r.olusturan_adi} · ${fTarih(r.created_at)}`],
+    ['Kapanış', r.kapanis_at ? `${r.kapatan_adi || ''} · ${fTarih(r.kapanis_at)}` : ''], ['İptal nedeni', r.iptal_nedeni]].filter(x => x[1]);
+  const eksikVar = acik && satirlar.some(s => (S.vmap[s.varyant_id]?.miktar || 0) < s.miktar - s.teslim);
+  const m = modal({
+    baslik: `Rezerv ${esc(r.rez_no)} ${REZ_DURUM[r.durum]}`, genis: true,
+    govde: `${eksikVar ? `<div class="warn">${ic('uyari')}<span>Bazı ürünlerin depodaki stoğu rezerve edilen miktardan az (örneğin sayımda eksik çıkmış olabilir). Teslimden önce kontrol edin.</span></div>` : ''}
+      <div class="grid g2" style="margin:14px 0">${ust.map(x => `<div><div class="sub">${x[0]}</div><div>${esc(x[1])}</div></div>`).join('')}</div>
+      <div class="glass tw"><table class="rt"><thead><tr><th>Ürün</th><th>SKU</th><th class="r">Rezerve</th><th class="r">Teslim edilen</th><th class="r">Kalan</th>${acik ? '<th class="r">Depoda</th>' : ''}</tr></thead><tbody>
+      ${satirlar.map(s => { const v = S.vmap[s.varyant_id] || {}; const kalan = s.miktar - s.teslim; return `<tr><td class="hd" data-l="Ürün">${esc(vTam(v))}</td><td data-l="SKU">${esc(v.sku)}</td>
+        <td class="r num" data-l="Rezerve">${fAdet(s.miktar)}</td><td class="r num" data-l="Teslim edilen">${fAdet(s.teslim)}</td><td class="r num" data-l="Kalan"><b>${fAdet(kalan)}</b></td>
+        ${acik ? `<td class="r num ${(v.miktar || 0) < kalan ? 'red-t' : ''}" data-l="Depoda">${fAdet(v.miktar || 0)}</td>` : ''}</tr>`; }).join('')}</tbody></table></div>
+      ${fisler?.length ? `<div style="margin-top:14px"><div class="sub" style="margin-bottom:6px">Teslim fişleri</div><div class="row">${fisler.map(f => `<button class="btn sm" data-fis="${f.id}">${esc(f.fis_no)}${f.iptal_edildi ? ' (iptal)' : ''}</button>`).join('')}</div></div>` : ''}`,
+    alt: `${acik && (r.olusturan_id === S.user.id || yon()) ? `<button class="btn red" id="rz-iptal">${ic('cop')} Rezervi İptal Et</button>` : ''}<button class="btn" id="rz-yaz">${ic('yazdir')} Yazdır / PDF</button>${acik ? `<button class="btn gold" id="rz-teslim">${ic('cikis')} Teslim Et</button>` : '<button class="btn gold" data-kapat>Kapat</button>'}`
+  });
+  $$('[data-fis]', m).forEach(b => b.onclick = () => fisDetay(+b.dataset.fis));
+  $('#rz-yaz', m).onclick = () => yazdir(`Rezerv — ${r.rez_no}`, `
+    <div class="meta">${ust.map(x => `<div><b>${x[0]}:</b> ${esc(x[1])}</div>`).join('')}<div><b>Durum:</b> ${{acik: 'Açık', teslim: 'Teslim edildi', iptal: 'İptal'}[r.durum]}</div></div>
+    <table><thead><tr><th>#</th><th>Model</th><th>Varyant</th><th>SKU</th><th class="r">Rezerve</th><th class="r">Teslim</th><th class="r">Kalan</th></tr></thead><tbody>
+    ${satirlar.map((s, i) => { const v = S.vmap[s.varyant_id] || {}, u = S.umap[v.urun_id] || {}; return `<tr><td>${i + 1}</td><td>${esc(u.model_kodu)} · ${esc(u.model_adi)}</td><td>${esc(vAd(v))}</td><td>${esc(v.sku)}</td><td class="r">${fAdet(s.miktar)}</td><td class="r">${fAdet(s.teslim)}</td><td class="r">${fAdet(s.miktar - s.teslim)}</td></tr>`; }).join('')}
+    <tr class="tot"><td colspan="4">Toplam</td><td class="r">${fAdet(satirlar.reduce((a, s) => a + s.miktar, 0))}</td><td class="r">${fAdet(satirlar.reduce((a, s) => a + s.teslim, 0))}</td><td class="r">${fAdet(satirlar.reduce((a, s) => a + s.miktar - s.teslim, 0))}</td></tr></tbody></table>`);
+  const ib = $('#rz-iptal', m);
+  if (ib) ib.onclick = () => {
+    const m2 = modal({
+      baslik: `${esc(r.rez_no)} iptali`,
+      govde: `<p class="muted" style="margin-bottom:12px">Kalan rezerve serbest kalır ve tekrar satılabilir olur. Teslim edilmiş kısım etkilenmez.</p><label class="f"><span>İptal nedeni</span><input class="inp" id="rzn" maxlength="300" placeholder="Örn. müşteri vazgeçti"></label>`,
+      alt: `<button class="btn" data-kapat>Vazgeç</button><button class="btn red" id="rzn-ok">Rezervi İptal Et</button>`
+    });
+    $('#rzn-ok', m2).onclick = e => mesgul(e.currentTarget, async () => {
+      const {error} = await S.sb.rpc('rezerv_iptal', {p_id: id, p_neden: $('#rzn', m2).value.trim()});
+      if (error) return toast(hataMesaji(error), 'err');
+      await stokYenile(); toast('Rezerv iptal edildi.'); m2.kapat(); m.kapat(); sonra && sonra();
+    });
+  };
+  const tb = $('#rz-teslim', m);
+  if (tb) tb.onclick = () => {
+    const kalanlar = satirlar.filter(s => s.miktar > s.teslim);
+    const m2 = modal({
+      baslik: `${esc(r.rez_no)} teslim`, genis: true,
+      govde: `<div class="grid g2" style="margin-bottom:14px">
+          <label class="f"><span>İrsaliye No</span><input class="inp" id="tsi" maxlength="60"></label>
+          <label class="f"><span>Açıklama</span><input class="inp" id="tsa" maxlength="600" placeholder="${esc(r.rez_no)} teslimi"></label></div>
+        <div class="glass tw"><table class="rt"><thead><tr><th>Ürün</th><th class="r">Kalan</th><th class="r">Depoda</th><th class="r" style="width:140px">Teslim edilecek</th></tr></thead><tbody>
+        ${kalanlar.map(s => { const v = S.vmap[s.varyant_id] || {}; const kalan = s.miktar - s.teslim; return `<tr><td class="hd" data-l="Ürün">${esc(vTam(v))}</td><td class="r num" data-l="Kalan">${fAdet(kalan)}</td><td class="r num ${(v.miktar || 0) < kalan ? 'red-t' : ''}" data-l="Depoda">${fAdet(v.miktar || 0)}</td>
+          <td class="r" data-l="Teslim edilecek"><input class="inp num" style="max-width:120px;text-align:right" type="number" inputmode="numeric" min="0" max="${kalan}" step="1" value="${kalan}" data-tv="${s.varyant_id}" data-max="${kalan}"></td></tr>`; }).join('')}</tbody></table></div>
+        <p class="sub" style="margin-top:10px">Tamamını teslim ediyorsanız miktarlara dokunmayın. Kısmi teslimde gönderilen adedi yazın; kalan kısım rezervde bekler.</p>`,
+      alt: `<button class="btn" data-kapat>Vazgeç</button><button class="btn gold" id="ts-ok">${ic('cikis')} Çıkış Fişini Kes</button>`
+    });
+    $('#ts-ok', m2).onclick = e => {
+      const sat = [];
+      for (const inp of $$('[data-tv]', m2)) {
+        const n = Number(inp.value), mx = +inp.dataset.max;
+        if (!Number.isInteger(n) || n < 0 || n > mx) { inp.focus(); return toast(`Teslim miktarı 0 ile ${fAdet(mx)} arasında olmalı.`, 'err'); }
+        if (n > 0) {
+          const v = S.vmap[inp.dataset.tv];
+          if ((v?.miktar || 0) < n) { inp.focus(); return toast(`Depoda yeterli stok yok: ${v?.sku} (depoda ${fAdet(v?.miktar || 0)})`, 'err'); }
+          sat.push({varyant_id: +inp.dataset.tv, miktar: n});
+        }
+      }
+      if (!sat.length) return toast('Teslim edilecek miktar girin.', 'err');
+      mesgul(e.currentTarget, async () => {
+        const {data, error} = await S.sb.rpc('rezerv_teslim', {p_id: id, p: {irsaliye_no: $('#tsi', m2).value.trim(), aciklama: $('#tsa', m2).value.trim(), satirlar: sat}});
+        if (error) return toast(hataMesaji(error), 'err');
+        await stokYenile();
+        toast(`Teslim edildi. Çıkış fişi: ${data}`);
+        m2.kapat(); m.kapat(); sonra && sonra();
+        const {data: f} = await S.sb.from('fisler').select('id').eq('fis_no', data).single();
+        if (f) fisDetay(f.id);
+      });
+    };
+  };
 }
 
 /* ---------- Giriş / Çıkış Fişi ---------- */
@@ -1748,6 +2314,11 @@ function fisFormu(el, tip) {
     const p = $('.pick', ln), v = S.vmap[p.secili], inf = $('.info', ln);
     if (!v) { inf.textContent = ''; return; }
     const m = parseInt($('[data-m]', ln).value, 10) || 0;
+    if (cikis && rezerveOf(v)) {
+      const sat = satilabilir(v);
+      inf.innerHTML = `Mevcut: <b>${fAdet(v.miktar)}</b> · Rezerve: <b>${fAdet(rezerveOf(v))}</b> · Satılabilir: <b class="${m > sat ? 'red-t' : ''}">${fAdet(sat)}</b>${m > sat ? ' — rezerveli mal normal çıkışla verilemez; <a href="#/rezervler">Rezervler</a> ekranından teslim edin' : ''}`;
+      return;
+    }
     const sonra = v.miktar + (cikis ? -m : m);
     inf.innerHTML = `Mevcut: <b>${fAdet(v.miktar)}</b> · İşlem sonrası: <b class="${sonra < 0 ? 'red-t' : ''}">${fAdet(sonra)}</b>${sonra < 0 ? ' — yetersiz stok' : ''}`;
   };
@@ -1762,7 +2333,7 @@ function fisFormu(el, tip) {
       <div class="info"></div>`;
     lines.appendChild(ln);
     secici(ln.firstElementChild, {
-      deger: vid,
+      deger: vid, satilabilirGoster: cikis,
       onSec: v => {
         if (v && fy()) {
           const f = S.fiyat[v.id];
@@ -1806,8 +2377,8 @@ function fisFormu(el, tip) {
     if (cikis) {
       const ihtiyac = {};
       satirlar.forEach(s => ihtiyac[s.varyant_id] = (ihtiyac[s.varyant_id] || 0) + s.miktar);
-      const eksik = Object.entries(ihtiyac).find(([id, m]) => (S.vmap[id]?.miktar || 0) < m);
-      if (eksik) return toast(`Yetersiz stok: ${S.vmap[eksik[0]].sku} (mevcut ${fAdet(S.vmap[eksik[0]].miktar)})`, 'err');
+      const eksik = Object.entries(ihtiyac).find(([id, m]) => satilabilir(S.vmap[id]) < m);
+      if (eksik) { const ev = S.vmap[eksik[0]]; return toast(rezerveOf(ev) ? `Yetersiz satılabilir stok: ${ev.sku} (mevcut ${fAdet(ev.miktar)}, rezerve ${fAdet(rezerveOf(ev))}). Rezerveli malı Rezervler ekranından teslim edin.` : `Yetersiz stok: ${ev.sku} (mevcut ${fAdet(ev.miktar)})`, 'err'); }
       if (fm.neden.value === 'Satış' && !fm.musteri.value.trim()) { fm.musteri.focus(); return toast('Satış çıkışında müşteri adı zorunlu.', 'err'); }
     }
     const p = {
@@ -2110,11 +2681,11 @@ VIEWS.raporlar = el => {
   $('#rs-x').onclick = () => {
     const l = stokVeri();
     if (!l.length) return toast('Rapor için kayıt yok.', 'err');
-    const bas = ['Model Kodu', 'Model Adı', 'Kategori', 'Renk', 'Kumaş', 'Ebat', 'SKU', 'Miktar'];
+    const bas = ['Model Kodu', 'Model Adı', 'Kategori', 'Renk', 'Kumaş', 'Ebat', 'SKU', 'Miktar', 'Rezerve', 'Satılabilir'];
     if (fy()) bas.push('Maliyet', 'Maliyet Döviz', 'Satış', 'Satış Döviz', 'Maliyet Değeri (TL)', 'Satış Değeri (TL)');
     const rows = [bas, ...l.map(v => {
       const u = S.umap[v.urun_id] || {}, f = S.fiyat[v.id];
-      const r = [u.model_kodu, u.model_adi, u.kategori, v.renk, v.kumas, v.ebat, v.sku, v.miktar];
+      const r = [u.model_kodu, u.model_adi, u.kategori, v.renk, v.kumas, v.ebat, v.sku, v.miktar, rezerveOf(v), satilabilir(v)];
       if (fy()) r.push(f ? Number(f.maliyet) : 0, f?.maliyet_doviz || 'TRY', f ? Number(f.satis) : 0, f?.satis_doviz || 'TRY',
         f ? +(v.miktar * tl(f.maliyet, f.maliyet_doviz)).toFixed(2) : 0, f ? +(v.miktar * tl(f.satis, f.satis_doviz)).toFixed(2) : 0);
       return r;
@@ -2125,13 +2696,14 @@ VIEWS.raporlar = el => {
     const l = stokVeri();
     if (!l.length) return toast('Rapor için kayıt yok.', 'err');
     let top = 0, deg = 0;
+    const rzVar = l.some(v => rezerveOf(v) > 0);
     const body = l.map(v => {
       const u = S.umap[v.urun_id] || {}, f = S.fiyat[v.id];
       const d = f ? v.miktar * tl(f.maliyet, f.maliyet_doviz) : 0; top += v.miktar; deg += d;
-      return `<tr><td>${esc(u.model_kodu)}</td><td>${esc(u.model_adi)}</td><td>${esc(vAd(v))}</td><td>${esc(v.sku)}</td><td class="r">${fAdet(v.miktar)}</td>${fy() ? `<td class="r">${f ? esc(fPara(f.maliyet, f.maliyet_doviz)) : ''}</td><td class="r">${esc(fTL(d))}</td>` : ''}</tr>`;
+      return `<tr><td>${esc(u.model_kodu)}</td><td>${esc(u.model_adi)}</td><td>${esc(vAd(v))}</td><td>${esc(v.sku)}</td><td class="r">${fAdet(v.miktar)}</td>${rzVar ? `<td class="r">${fAdet(rezerveOf(v))}</td><td class="r">${fAdet(satilabilir(v))}</td>` : ''}${fy() ? `<td class="r">${f ? esc(fPara(f.maliyet, f.maliyet_doviz)) : ''}</td><td class="r">${esc(fTL(d))}</td>` : ''}</tr>`;
     }).join('');
-    yazdir('Stok Durumu Raporu', `<p>${esc(filtreYazi())}</p><table><thead><tr><th>Model Kodu</th><th>Model</th><th>Varyant</th><th>SKU</th><th class="r">Miktar</th>${fy() ? '<th class="r">Maliyet</th><th class="r">Değer (₺)</th>' : ''}</tr></thead><tbody>${body}
-      <tr class="tot"><td colspan="4">Toplam (${fAdet(l.length)} varyant)</td><td class="r">${fAdet(top)}</td>${fy() ? `<td></td><td class="r">${esc(fTL(deg))}</td>` : ''}</tr></tbody></table>`);
+    yazdir('Stok Durumu Raporu', `<p>${esc(filtreYazi())}</p><table><thead><tr><th>Model Kodu</th><th>Model</th><th>Varyant</th><th>SKU</th><th class="r">Miktar</th>${rzVar ? '<th class="r">Rezerve</th><th class="r">Satılabilir</th>' : ''}${fy() ? '<th class="r">Maliyet</th><th class="r">Değer (₺)</th>' : ''}</tr></thead><tbody>${body}
+      <tr class="tot"><td colspan="4">Toplam (${fAdet(l.length)} varyant)</td><td class="r">${fAdet(top)}</td>${rzVar ? `<td class="r">${fAdet(l.reduce((a, v) => a + rezerveOf(v), 0))}</td><td class="r">${fAdet(l.reduce((a, v) => a + satilabilir(v), 0))}</td>` : ''}${fy() ? `<td></td><td class="r">${esc(fTL(deg))}</td>` : ''}</tr></tbody></table>`);
   };
 
   // Hareket dökümü
@@ -2211,7 +2783,8 @@ VIEWS.raporlar = el => {
 
 /* ---------- Ürünler (yönetici) ---------- */
 VIEWS.urunler = el => {
-  $('#ust').innerHTML = `<button class="btn gold" id="yeni">${ic('arti')} Yeni Ürün</button>`;
+  $('#ust').innerHTML = `<button class="btn" id="toplu">${ic('yukle')} Excel'den yükle</button><button class="btn gold" id="yeni">${ic('arti')} Yeni Ürün</button>`;
+  $('#toplu').onclick = topluYukleAc;
   el.innerHTML = `<div class="glass filters"><label class="f"><span>Ara</span><input class="inp" id="q" placeholder="Model kodu, adı, kategori…"></label><label class="chk"><input type="checkbox" id="pasif"> Pasifleri göster</label></div><div class="glass tw" id="liste"></div>`;
   const ciz = () => {
     const q = trLower($('#q').value).split(/\s+/).filter(Boolean), pasif = $('#pasif').checked;
@@ -2440,9 +3013,9 @@ VIEWS.ayarlar = async el => {
     $(`#lk-${t}`).classList.toggle('hidden', !lg[t]);
     $(`#ln-${t}`).textContent = lg[t] ? 'Yüklendi' : (lg[t === 'acik' ? 'koyu' : 'acik'] ? 'Diğer logo kullanılıyor' : 'Yazı logo kullanılıyor');
   });
-  const cdnKullaniliyor = window.__ofs_cdn_sb || window.__ofs_cdn_x;
+  const cdnKullaniliyor = window.__ofs_cdn_sb;
   el.innerHTML = `
-  ${cdnKullaniliyor ? `<div class="warn" style="max-width:760px">${ic('uyari')}<span>Kütüphaneler yedek olarak dış sunucudan (jsDelivr) yükleniyor. Güvenlik için <b>supabase.min.js</b> ve <b>xlsx.full.min.js</b> dosyalarını GitHub reponuza yükleyin.</span></div>` : ''}
+  ${cdnKullaniliyor ? `<div class="warn" style="max-width:760px">${ic('uyari')}<span>Kütüphaneler yedek olarak dış sunucudan (jsDelivr) yükleniyor. Güvenlik için <b>supabase.min.js</b> dosyasını GitHub reponuza yükleyin.</span></div>` : ''}
   <form id="fa" class="glass" style="max-width:760px">
     <div class="ch"><div class="ct">Genel</div><div class="cd">${FIYAT_AKTIF ? 'Firma adı ve döviz kurları' : 'Firma adı'}</div></div>
     <div class="cc stack">
@@ -2467,7 +3040,16 @@ VIEWS.ayarlar = async el => {
       </div>`).join('')}</div>
       <div class="row end"><button type="button" class="btn gold" id="lg-kaydet">Logoları kaydet</button></div>
     </div>
+  </div>
+  <div class="glass" style="max-width:760px" id="yedek-kart">
+    <div class="ch"><div class="ct">Tam yedek</div><div class="cd">Tüm ürünler, stoklar, fişler, hareketler, sayımlar, rezervler ve kullanıcılar tek bir Excel dosyasına (her biri ayrı sayfa) indirilir.</div></div>
+    <div class="cc stack">
+      <p class="sub">Supabase ücretsiz planda otomatik yedek yok. Haftada bir yedek alıp dosyayı hem bilgisayarınızda hem bir bulut klasöründe (Google Drive vb.) saklayın. Yedekteki "Ürünler" sayfası, ürünleri yeniden yüklemek için <b>Ürünler → Excel'den yükle</b> şablonuyla aynı düzendedir.</p>
+      <div class="row"><span class="sub" id="yedek-durum">${'son_yedek' in S.ay ? (S.ay.son_yedek ? `Son yedek: ${esc(fTarih(S.ay.son_yedek))}` : 'Henüz yedek alınmadı.') : 'Yedek tarihini kaydetmek için ozellikler.sql dosyasını çalıştırın.'}</span><span class="sp"></span>
+        <button type="button" class="btn gold" id="yedek-al">${ic('excel')} Tam yedek al</button></div>
+    </div>
   </div>`;
+  $('#yedek-al').onclick = e => tamYedekAl(e.currentTarget, $('#yedek-durum'));
   onizle();
   $$('[data-lg]', el).forEach(inp => inp.onchange = async () => {
     const f = inp.files[0]; inp.value = '';
@@ -2578,7 +3160,7 @@ function turAdimlari() {
     {rota: 'urunler', hedef: '#yeni', baslik: '1. adım: Ürünleri tanımla',
       metin: 'Stok tutmadan önce ürünleri eklemen gerekir. Her ürünün bir <b>model kodu</b> ve <b>model adı</b> vardır.<br><br>Ürünün renk, kumaş ya da ebat seçenekleri <b>varyant</b> olarak eklenir ve her varyantın stoğu ayrı tutulur. SKU alanını boş bırakırsan otomatik oluşturulur.'},
     {rota: 'urunler', hedef: '.filters', baslik: 'Ürün listesi',
-      metin: 'Ürüne tıklayınca düzenleyebilirsin. Hareketi olan bir ürün silinemez, kayıtların bozulmaması için <b>pasif</b> yapılır. Pasif ürünler listelerde görünmez ama geçmişi korunur.'}
+      metin: 'Çok sayıda ürünün varsa sağ üstteki <b>Excel’den yükle</b> ile şablonu indirip tek seferde yükleyebilirsin; açılış stoğu da aynı dosyadan girilir.<br><br>Ürüne tıklayınca düzenleyebilirsin. Hareketi olan bir ürün silinemez, kayıtların bozulmaması için <b>pasif</b> yapılır. Pasif ürünler listelerde görünmez ama geçmişi korunur.'}
   );
   A.push(
     {rota: 'giris', hedef: '#ff > .glass:first-child', baslik: 'Stok girişi: neden',
@@ -2593,6 +3175,8 @@ function turAdimlari() {
       metin: 'Depodan ürün çıkınca <b>çıkış fişi</b> kesilir. Neden <b>Satış</b> ise <b>müşteri adı zorunludur</b>. Sipariş ve irsaliye numarasını da yazarsan sonra kolayca bulursun.<br><br>Stokta olandan fazlası çıkarılamaz, program engeller.'},
     {rota: 'stok', hedef: '.filters', baslik: 'Stok durumu',
       metin: 'Tüm ürünlerin güncel miktarı burada. Arama, kategori ve <b>stokta olan / olmayan</b> filtreleri var. Bir ürüne tıklayınca son 100 hareketi ve hızlı giriş/çıkış düğmeleri açılır.'},
+    {rota: 'rezervler', hedef: '#yeni', baslik: 'Rezervler',
+      metin: 'Müşteriye söz verdiğin ama henüz teslim etmediğin malı burada <b>rezerve</b> edersin. Rezerveli mal depoda durur ama normal çıkışla başkasına verilemez; Stok ekranında <b>Satılabilir</b> sütunu bunu gösterir.<br><br>Mal gidince rezervi açıp <b>Teslim Et</b>’e bas: çıkış fişi otomatik kesilir. Kısmi teslim de yapılabilir.'},
     {rota: 'hareketler', hedef: '.filters', baslik: 'Hareketler',
       metin: 'Bütün giriş ve çıkışların tam dökümü: tarih aralığı, tür, fiş/müşteri/sipariş no ya da ürüne göre filtrele. Satıra tıklayınca fiş açılır.' +
         (y ? '<br><br>Yanlış bir fiş <b>silinmez</b>; fiş detayından <b>iptal</b> edilir, program stoğu geri alan bir iptal fişi keser. Böylece geçmiş hiç bozulmaz.' : '<br><br>Yanlış bir fiş kestiysen yöneticiye haber ver; fişleri yalnızca yönetici iptal edebilir.')},
@@ -2605,8 +3189,10 @@ function turAdimlari() {
   if (y) A.push(
     {rota: 'kullanicilar', hedef: '#yeni', baslik: 'Kullanıcılar',
       metin: 'Ekibi buradan eklersin. <b>Depocu</b> giriş, çıkış ve sayım yapar; ürün, kullanıcı ve ayarları değiştiremez, fiş iptal edemez. <b>Yönetici</b> her şeyi yapar.<br><br>Ayrılan birini silmek yerine <b>pasif</b> yap; geçmiş kayıtları korunur.'},
-    {rota: 'ayarlar', hedef: '.lgup', ust: '.glass', baslik: 'Firma ve logo',
-      metin: 'Firma adını ve <b>açık / koyu tema</b> için ayrı logoları buradan yüklersin. Logo menüde, giriş ekranında ve PDF çıktılarında görünür.'}
+    {rota: 'ayarlar', hedef: '.lgup', baslik: 'Firma ve logo',
+      metin: 'Firma adını ve <b>açık / koyu tema</b> için ayrı logoları buradan yüklersin. Logo menüde, giriş ekranında ve PDF çıktılarında görünür.'},
+    {rota: 'ayarlar', hedef: '#yedek-kart', baslik: 'Tam yedek',
+      metin: 'Tek tıkla tüm verileri (ürünler, stok, fişler, hareketler, sayımlar, rezervler) Excel dosyası olarak indirirsin. Ücretsiz planda otomatik yedek olmadığı için <b>haftada bir</b> yedek al; 7 günü geçerse Genel Bakış ekranında uyarı çıkar.'}
   );
   A.push({orta: true, rota: 'panel', baslik: 'Hazırsın!', ikon: 'sayim',
     metin: (y ? '<b>Önerilen ilk adımlar:</b><ol style="padding-left:20px;margin:8px 0;display:grid;gap:4px"><li><b>Ürünler</b>den ürünleri ve varyantlarını ekle.</li><li><b>Stok Girişi</b>nde "Açılış stoğu" nedeniyle mevcut stoğu gir.</li><li><b>Kullanıcılar</b>dan ekibi ekle.</li></ol>'
